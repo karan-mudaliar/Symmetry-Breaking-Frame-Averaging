@@ -6,9 +6,11 @@ from torch_geometric.loader import DataLoader
 import argparse
 import numpy as np
 from tqdm import tqdm
+from torch.utils.data import random_split
 
-from dataset import SlabDataset, apply_frame_averaging_to_batch
+from dataset import EnhancedSlabDataset, apply_frame_averaging_to_batch
 from faenet import FAENet
+from config import get_config, FAENetConfig
 
 
 def train(model, train_loader, val_loader, device, config):
@@ -327,9 +329,165 @@ def run_inference(model, data_loader, device, config, output_file):
     print(f"Saved inference results for {len(results)} structures to {output_file}")
 
 
+def train_faenet(
+    data_path,
+    structure_col=None,
+    target_properties=None,
+    output_dir="output",
+    frame_averaging=None,
+    fa_method="all",
+    cutoff=6.0,
+    max_neighbors=40,
+    batch_size=32,
+    epochs=100,
+    learning_rate=0.001,
+    seed=42,
+    device=None,
+    num_workers=4,
+    pbc=True,
+    test_ratio=0.1,
+    val_ratio=0.1,
+    **model_kwargs
+):
+    """
+    Train a FAENet model with simplified interface
+    
+    Args:
+        data_path: Path to data file or directory
+        structure_col: Column name containing structure data (for CSV)
+        target_properties: List or dict of target properties
+        output_dir: Directory to save outputs
+        frame_averaging: Frame averaging method ("2D", "3D", or None)
+        fa_method: Frame averaging technique ("all", "det", "random")
+        cutoff: Cutoff distance for neighbor finding
+        max_neighbors: Maximum number of neighbors per atom
+        batch_size: Batch size for training
+        epochs: Number of training epochs
+        learning_rate: Learning rate
+        seed: Random seed
+        device: Device to use ("cuda" or "cpu")
+        num_workers: Number of workers for data loading
+        pbc: Use periodic boundary conditions
+        test_ratio: Ratio of data to use for testing
+        val_ratio: Ratio of data to use for validation
+        **model_kwargs: Additional arguments to pass to FAENet model
+    
+    Returns:
+        model: Trained FAENet model
+        test_loader: DataLoader for test set
+    """
+    # Set up device
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(device)
+    
+    # Set random seed
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Create config object
+    config = FAENetConfig()
+    config.training.batch_size = batch_size
+    config.training.epochs = epochs
+    config.training.lr = learning_rate
+    config.training.seed = seed
+    config.training.num_workers = num_workers
+    config.training.test_ratio = test_ratio
+    config.training.val_ratio = val_ratio
+    config.training.frame_averaging = frame_averaging
+    config.training.fa_method = fa_method
+    config.model.cutoff = cutoff
+    config.output_dir = output_dir
+    
+    # Create dataset
+    print(f"Loading data from {data_path}")
+    dataset = EnhancedSlabDataset(
+        data_source=data_path,
+        structure_col=structure_col,
+        target_props=target_properties,
+        cutoff=cutoff,
+        max_neighbors=max_neighbors,
+        pbc=pbc,
+        frame_averaging=frame_averaging,
+        fa_method=fa_method
+    )
+    
+    # Split into train, validation, and test sets
+    test_size = int(len(dataset) * test_ratio)
+    val_size = int(len(dataset) * val_ratio)
+    train_size = len(dataset) - val_size - test_size
+    
+    train_dataset, val_dataset, test_dataset = random_split(
+        dataset, [train_size, val_size, test_size],
+        generator=torch.Generator().manual_seed(seed)
+    )
+    
+    # Create data loaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers
+    )
+    
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers
+    )
+    
+    # Determine output properties from target_properties
+    if isinstance(target_properties, list):
+        output_properties = target_properties
+    elif isinstance(target_properties, dict):
+        output_properties = list(target_properties.keys())
+    else:
+        output_properties = ["energy"]
+    
+    # Initialize model
+    model = FAENet(
+        cutoff=cutoff,
+        output_properties=output_properties,
+        **model_kwargs
+    ).to(device)
+    
+    # Print model summary
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"Model initialized with {num_params:,} parameters")
+    print(f"Using device: {device}")
+    print(f"Training on {train_size} samples, validating on {val_size} samples, testing on {test_size} samples")
+    
+    # Train model
+    train(model, train_loader, val_loader, device, config)
+    print("Training complete!")
+    
+    # Load best model
+    best_model_path = os.path.join(output_dir, "best_model.pt")
+    if os.path.exists(best_model_path):
+        model.load_state_dict(torch.load(best_model_path, map_location=device))
+        print(f"Loaded best model from {best_model_path}")
+    
+    # Run inference on test set
+    inference_output = os.path.join(output_dir, "predictions.json")
+    run_inference(model, test_loader, device, config, inference_output)
+    
+    return model, test_loader
+
+
 def main():
     # Get configuration from command line
-    from config import get_config
     config = get_config()
     
     # Set random seed
@@ -345,72 +503,28 @@ def main():
         for prop, file in zip(config.data.target_properties, config.data.prop_files):
             target_props[prop] = file
     
-    # Create dataset
-    dataset = SlabDataset(config.data.data_dir, target_props)
-    
-    # Split into train, validation, and test sets
-    test_size = int(len(dataset) * config.training.test_ratio)
-    val_size = int(len(dataset) * config.training.val_ratio)
-    train_size = len(dataset) - val_size - test_size
-    
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
-        dataset, [train_size, val_size, test_size]
-    )
-    
-    # Create data loaders
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=config.training.batch_size,
-        shuffle=True,
-        num_workers=config.training.num_workers
-    )
-    
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=config.training.batch_size,
-        shuffle=False,
-        num_workers=config.training.num_workers
-    )
-    
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=config.training.batch_size,
-        shuffle=False,
-        num_workers=config.training.num_workers
-    )
-    
-    # Initialize model
-    device = torch.device(config.device if torch.cuda.is_available() else "cpu")
-    model = FAENet(
+    # Train model using the simplified interface
+    train_faenet(
+        data_path=config.data.data_dir,
+        target_properties=target_props,
+        output_dir=config.output_dir,
+        frame_averaging=config.training.frame_averaging,
+        fa_method=config.training.fa_method,
         cutoff=config.model.cutoff,
+        max_neighbors=config.model.max_neighbors,
+        batch_size=config.training.batch_size,
+        epochs=config.training.epochs,
+        learning_rate=config.training.lr,
+        seed=config.training.seed,
+        device=config.device,
+        num_workers=config.training.num_workers,
         num_gaussians=config.model.num_gaussians,
         hidden_channels=config.model.hidden_channels,
         num_filters=config.model.num_filters,
         num_interactions=config.model.num_interactions,
         dropout=config.model.dropout,
-        output_properties=config.model.output_properties,
         regress_forces=config.model.regress_forces
-    ).to(device)
-    
-    # Print model summary
-    num_params = sum(p.numel() for p in model.parameters())
-    print(f"Model initialized with {num_params:,} parameters")
-    print(f"Using device: {device}")
-    print(f"Training on {train_size} samples, validating on {val_size} samples, testing on {test_size} samples")
-    
-    # Train model
-    train(model, train_loader, val_loader, device, config)
-    print("Training complete!")
-    
-    # Load best model
-    best_model_path = os.path.join(config.output_dir, "best_model.pt")
-    if os.path.exists(best_model_path):
-        model.load_state_dict(torch.load(best_model_path, map_location=device))
-        print(f"Loaded best model from {best_model_path}")
-    
-    # Run inference on test set
-    inference_output = os.path.join(config.output_dir, config.inference_output)
-    run_inference(model, test_loader, device, config, inference_output)
+    )
     
     
 if __name__ == "__main__":
