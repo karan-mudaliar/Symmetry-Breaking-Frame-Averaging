@@ -353,6 +353,21 @@ class FAENet(nn.Module):
         # Apply cell offsets for periodic boundary conditions
         cell_offsets = cell_offsets.to(pos.device)
         
+        # Handle special cases for cell - as a safety measure
+        # We need cell to be a [3, 3] tensor for proper matrix multiplication
+        if isinstance(cell, list):
+            # If cell is a list (can happen with frame averaging), use the first element
+            cell = cell[0]
+            
+        # If cell has more than 2 dimensions, try to extract a 3x3 matrix
+        if cell.dim() > 2:
+            if cell.shape[-2:] == (3, 3):
+                # If the last two dimensions are 3x3, use that
+                cell = cell.reshape(-1, 3, 3)[0]
+            else:
+                # Otherwise, try to reshape or extract appropriate dimensions
+                cell = cell.reshape(-1, 3)[:3].reshape(3, 3)
+        
         # Convert cell offsets to cartesian
         offsets = torch.matmul(cell_offsets, cell)
         

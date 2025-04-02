@@ -92,6 +92,12 @@ def train(model, train_loader, val_loader, device, config):
                     original_pos = batch.pos.clone()
                     batch.pos = batch.fa_pos[i]
                     
+                    # Also set the correct cell for this frame if available
+                    original_cell = None
+                    if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
+                        original_cell = batch.cell.clone() if isinstance(batch.cell, torch.Tensor) else batch.cell
+                        batch.cell = batch.fa_cell[i]
+                    
                     # Forward pass
                     preds = model(batch)
                     
@@ -115,8 +121,10 @@ def train(model, train_loader, val_loader, device, config):
                         )
                         f_all.append(forces)
                     
-                    # Restore original positions
+                    # Restore original positions and cell
                     batch.pos = original_pos
+                    if original_cell is not None:
+                        batch.cell = original_cell
                 
                 # Average predictions
                 loss = 0
@@ -182,6 +190,12 @@ def train(model, train_loader, val_loader, device, config):
                         original_pos = batch.pos.clone()
                         batch.pos = batch.fa_pos[i]
                         
+                        # Also set the correct cell for this frame if available
+                        original_cell = None
+                        if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
+                            original_cell = batch.cell.clone() if isinstance(batch.cell, torch.Tensor) else batch.cell
+                            batch.cell = batch.fa_cell[i]
+                        
                         # Forward pass
                         preds = model(batch)
                         
@@ -189,8 +203,10 @@ def train(model, train_loader, val_loader, device, config):
                         for prop_idx, prop in enumerate(model.output_properties):
                             e_all[prop_idx].append(preds[prop])
                         
-                        # Restore original positions
+                        # Restore original positions and cell
                         batch.pos = original_pos
+                        if original_cell is not None:
+                            batch.cell = original_cell
                     
                     # Calculate validation loss
                     batch_loss = 0
@@ -290,6 +306,12 @@ def run_inference(model, data_loader, device, config, output_file):
                     original_pos = batch.pos.clone()
                     batch.pos = batch.fa_pos[i]
                     
+                    # Also set the correct cell for this frame if available
+                    original_cell = None
+                    if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
+                        original_cell = batch.cell.clone() if isinstance(batch.cell, torch.Tensor) else batch.cell
+                        batch.cell = batch.fa_cell[i]
+                    
                     # Forward pass
                     preds = model(batch)
                     
@@ -310,8 +332,10 @@ def run_inference(model, data_loader, device, config, output_file):
                         )
                         f_all.append(forces)
                     
-                    # Restore original positions
+                    # Restore original positions and cell
                     batch.pos = original_pos
+                    if original_cell is not None:
+                        batch.cell = original_cell
                 
                 # Average predictions
                 final_preds = {}

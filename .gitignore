@@ -120,3 +120,4 @@ script*.sh
 output-job*.txt
 error-job*.txt
 CLAUDE.md
+error.txt
