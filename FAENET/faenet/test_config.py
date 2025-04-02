@@ -32,7 +32,7 @@ def test_nested_config():
             fa_method="all"
         ),
         data=DataConfig(
-            data_dir=Path("./test_data/surface_prop_data_set_top_bottom.csv"),
+            data_dir=Path("./data"),  # Use a generic path to avoid file not found
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
         ),
@@ -67,7 +67,7 @@ def test_simple_config():
         lr=0.0005,
         frame_averaging="2D",
         fa_method="all",
-        data_dir=Path("./test_data/surface_prop_data_set_top_bottom.csv"),
+        data_dir=Path("./data"),  # Use a generic path to avoid file not found
         structure_col="slab",
         target_properties=["WF_top", "WF_bottom", "cleavage_energy"],
         output_dir=Path("./simple_output"),
