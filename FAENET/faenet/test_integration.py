@@ -228,6 +228,12 @@ def test_forward_with_frames():
             if not torch.allclose(fa_pos_2d[i][:, 2], test_pos[:, 2], atol=1e-5):
                 z_preserved = False
                 print(f"WARNING: Frame {i} does not preserve z-coordinates")
+            
+            # Also check determinant - can be either 1 or -1 for frame averaging
+            if hasattr(fa_rot_2d[i], 'shape'):
+                R = fa_rot_2d[i].squeeze()
+                det = torch.det(R)
+                print(f"  Frame {i} has determinant {det:.1f} (proper rotation if 1, improper if -1)")
         
         if z_preserved:
             print("✅ 2D frame averaging correctly preserves z-axis coordinates")
