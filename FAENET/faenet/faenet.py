@@ -353,6 +353,10 @@ class FAENet(nn.Module):
         # Apply cell offsets for periodic boundary conditions
         cell_offsets = cell_offsets.to(pos.device)
         
+        # Ensure cell_offsets has float dtype for matrix multiplication
+        if cell_offsets.dtype != torch.float:
+            cell_offsets = cell_offsets.float()
+        
         # Handle special cases for cell - as a safety measure
         # We need cell to be a [3, 3] tensor for proper matrix multiplication
         if isinstance(cell, list):
@@ -382,6 +386,10 @@ class FAENet(nn.Module):
             else:
                 # Last resort: use identity matrix
                 cell = torch.eye(3, device=pos.device)
+        
+        # Ensure cell has float dtype
+        if cell.dtype != torch.float:
+            cell = cell.float()
                 
         # Convert cell offsets to cartesian
         offsets = torch.matmul(cell_offsets, cell)
