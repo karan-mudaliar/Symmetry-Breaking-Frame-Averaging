@@ -10,7 +10,33 @@ from torch.utils.data import random_split
 
 from dataset import EnhancedSlabDataset, apply_frame_averaging_to_batch
 from faenet import FAENet
-from config import get_config, FAENetConfig
+from config import get_config, get_simple_config, FAENetConfig, SimpleConfig
+
+
+def get_config_param(config, nested_path, default=None):
+    """Get parameter from either nested or flat config
+    
+    Args:
+        config: Config object (either SimpleConfig or Config)
+        nested_path: Path in nested config (e.g., "training.lr")
+        default: Default value if parameter not found
+        
+    Returns:
+        Parameter value
+    """
+    if isinstance(config, SimpleConfig):
+        # For flat config, use the last part of the path
+        param_name = nested_path.split('.')[-1]
+        return getattr(config, param_name, default)
+    else:
+        # For nested config, traverse the path
+        parts = nested_path.split('.')
+        current = config
+        for part in parts:
+            if not hasattr(current, part):
+                return default
+            current = getattr(current, part)
+        return current
 
 
 def train(model, train_loader, val_loader, device, config):
@@ -21,10 +47,19 @@ def train(model, train_loader, val_loader, device, config):
         train_loader: Training data loader
         val_loader: Validation data loader
         device: Device to run on (cpu or cuda)
-        config: Training configuration
+        config: Configuration object (SimpleConfig or Config)
     """
+    # Get parameters from config (works with both SimpleConfig and nested Config)
+    lr = get_config_param(config, "training.lr", 0.001)
+    epochs = get_config_param(config, "training.epochs", 100)
+    frame_averaging = get_config_param(config, "training.frame_averaging", None)
+    fa_method = get_config_param(config, "training.fa_method", "all")
+    force_weight = get_config_param(config, "training.force_weight", 0.1)
+    checkpoint_interval = get_config_param(config, "training.checkpoint_interval", 10)
+    output_dir = get_config_param(config, "output_dir", "./outputs")
+    
     # Optimizer
-    optimizer = optim.Adam(model.parameters(), lr=config.training.lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     
     # Loss function
     criterion = nn.MSELoss()
@@ -38,17 +73,17 @@ def train(model, train_loader, val_loader, device, config):
     best_val_loss = float('inf')
     
     # Training loop
-    for epoch in range(config.training.epochs):
+    for epoch in range(epochs):
         model.train()
         train_loss = 0
         
         # Training
-        for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{config.training.epochs}"):
+        for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
             batch = batch.to(device)
             
             # Apply frame averaging
-            if config.training.frame_averaging:
-                batch = apply_frame_averaging_to_batch(batch, config.training.fa_method)
+            if frame_averaging:
+                batch = apply_frame_averaging_to_batch(batch, fa_method)
                 
                 # Process with frame averaging
                 e_all, f_all = [], []
@@ -99,7 +134,8 @@ def train(model, train_loader, val_loader, device, config):
                         sum(f_all) / len(f_all), 
                         batch.forces
                     )
-                    loss += config.training.force_weight * force_loss
+                    force_weight = get_config_param(config, "training.force_weight", 0.1)
+                    loss += force_weight * force_loss
             
             else:
                 # Standard forward pass without frame averaging
@@ -115,7 +151,8 @@ def train(model, train_loader, val_loader, device, config):
                 # Add force loss if needed
                 if model.regress_forces and "forces" in preds and hasattr(batch, "forces"):
                     force_loss = criterion(preds["forces"], batch.forces)
-                    loss += config.training.force_weight * force_loss
+                    force_weight = get_config_param(config, "training.force_weight", 0.1)
+                    loss += force_weight * force_loss
             
             # Backpropagation
             optimizer.zero_grad()
@@ -188,18 +225,18 @@ def train(model, train_loader, val_loader, device, config):
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), os.path.join(config.output_dir, "best_model.pt"))
+            torch.save(model.state_dict(), os.path.join(output_dir, "best_model.pt"))
             print(f"Saved new best model with validation loss: {best_val_loss:.6f}")
         
         # Save checkpoint
-        if (epoch + 1) % config.training.checkpoint_interval == 0:
+        if (epoch + 1) % checkpoint_interval == 0:
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'train_loss': train_loss,
                 'val_loss': val_loss,
-            }, os.path.join(config.output_dir, f"checkpoint_epoch_{epoch+1}.pt"))
+            }, os.path.join(output_dir, f"checkpoint_epoch_{epoch+1}.pt"))
         
         # Always save latest checkpoint
         torch.save({
@@ -208,7 +245,7 @@ def train(model, train_loader, val_loader, device, config):
             'optimizer_state_dict': optimizer.state_dict(),
             'train_loss': train_loss,
             'val_loss': val_loss,
-        }, os.path.join(config.output_dir, "checkpoint.pt"))
+        }, os.path.join(output_dir, "checkpoint.pt"))
 
 
 def run_inference(model, data_loader, device, config, output_file):
@@ -231,15 +268,18 @@ def run_inference(model, data_loader, device, config, output_file):
             batch = batch.to(device)
             
             # Get original file identifiers
-            file_indices = data_loader.dataset.indices[batch_idx * config.training.batch_size:
-                                                     min((batch_idx + 1) * config.training.batch_size, 
+            batch_size = get_config_param(config, "training.batch_size", 32)
+            file_indices = data_loader.dataset.indices[batch_idx * batch_size:
+                                                     min((batch_idx + 1) * batch_size, 
                                                          len(data_loader.dataset))]
             
             file_names = [data_loader.dataset.dataset.file_list[idx] for idx in file_indices]
             
             # Apply frame averaging if requested
-            if config.training.frame_averaging:
-                batch = apply_frame_averaging_to_batch(batch, config.training.fa_method)
+            frame_averaging = get_config_param(config, "training.frame_averaging", None)
+            fa_method = get_config_param(config, "training.fa_method", "all")
+            if frame_averaging:
+                batch = apply_frame_averaging_to_batch(batch, fa_method)
                 
                 # Process with frame averaging
                 e_all = {prop: [] for prop in model.output_properties}
@@ -389,19 +429,21 @@ def train_faenet(
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
-    # Create config object
-    config = FAENetConfig()
-    config.training.batch_size = batch_size
-    config.training.epochs = epochs
-    config.training.lr = learning_rate
-    config.training.seed = seed
-    config.training.num_workers = num_workers
-    config.training.test_ratio = test_ratio
-    config.training.val_ratio = val_ratio
-    config.training.frame_averaging = frame_averaging
-    config.training.fa_method = fa_method
-    config.model.cutoff = cutoff
-    config.output_dir = output_dir
+    # Create config object (using SimpleConfig for internal use)
+    config = SimpleConfig(
+        batch_size=batch_size,
+        epochs=epochs,
+        lr=learning_rate,
+        seed=seed,
+        num_workers=num_workers,
+        test_ratio=test_ratio,
+        val_ratio=val_ratio,
+        frame_averaging=frame_averaging,
+        fa_method=fa_method,
+        cutoff=cutoff,
+        output_dir=output_dir,
+        regress_forces=False  # Default to no force regression
+    )
     
     # Create dataset
     print(f"Loading data from {data_path}")
@@ -487,44 +529,94 @@ def train_faenet(
 
 
 def main():
-    # Get configuration from command line
-    config = get_config()
+    # Parse command-line args first to check for --simple flag
+    parser = argparse.ArgumentParser(description="FAENet training script")
+    parser.add_argument("--simple", action="store_true", help="Use simplified flat config structure")
     
-    # Set random seed
-    torch.manual_seed(config.training.seed)
-    np.random.seed(config.training.seed)
+    # Only parse the --simple argument
+    args, _ = parser.parse_known_args()
     
-    # Create output directory
-    os.makedirs(config.output_dir, exist_ok=True)
+    # Get configuration based on flag
+    if args.simple:
+        config = get_simple_config()
+        
+        # Set random seed
+        torch.manual_seed(config.seed)
+        np.random.seed(config.seed)
+        
+        # Create output directory
+        os.makedirs(config.output_dir, exist_ok=True)
+        
+        # Prepare target properties
+        target_props = {}
+        if config.prop_files:
+            for prop, file in zip(config.target_properties, config.prop_files):
+                target_props[prop] = file
+        
+        # Train model using the simplified interface
+        train_faenet(
+            data_path=config.data_dir,
+            structure_col=config.structure_col,
+            target_properties=config.target_properties,
+            output_dir=config.output_dir,
+            frame_averaging=config.frame_averaging,
+            fa_method=config.fa_method,
+            cutoff=config.cutoff,
+            max_neighbors=config.max_neighbors,
+            batch_size=config.batch_size,
+            epochs=config.epochs,
+            learning_rate=config.lr,
+            seed=config.seed,
+            device=config.device,
+            num_workers=config.num_workers,
+            num_gaussians=config.num_gaussians,
+            hidden_channels=config.hidden_channels,
+            num_filters=config.num_filters,
+            num_interactions=config.num_interactions,
+            dropout=config.dropout,
+            regress_forces=config.regress_forces
+        )
+    else:
+        # Use the original nested config
+        config = get_config()
+        
+        # Set random seed
+        torch.manual_seed(config.training.seed)
+        np.random.seed(config.training.seed)
+        
+        # Create output directory
+        os.makedirs(config.output_dir, exist_ok=True)
+        
+        # Prepare target properties
+        target_props = {}
+        if config.data.prop_files:
+            for prop, file in zip(config.data.target_properties, config.data.prop_files):
+                target_props[prop] = file
+        
+        # Train model using the simplified interface with nested config
+        train_faenet(
+            data_path=config.data.data_dir,
+            structure_col=config.data.structure_col,
+            target_properties=config.data.target_properties,
+            output_dir=config.output_dir,
+            frame_averaging=config.training.frame_averaging,
+            fa_method=config.training.fa_method,
+            cutoff=config.model.cutoff,
+            max_neighbors=config.model.max_neighbors,
+            batch_size=config.training.batch_size,
+            epochs=config.training.epochs,
+            learning_rate=config.training.lr,
+            seed=config.training.seed,
+            device=config.device,
+            num_workers=config.training.num_workers,
+            num_gaussians=config.model.num_gaussians,
+            hidden_channels=config.model.hidden_channels,
+            num_filters=config.model.num_filters,
+            num_interactions=config.model.num_interactions,
+            dropout=config.model.dropout,
+            regress_forces=config.model.regress_forces
+        )
     
-    # Prepare target properties
-    target_props = {}
-    if config.data.prop_files:
-        for prop, file in zip(config.data.target_properties, config.data.prop_files):
-            target_props[prop] = file
-    
-    # Train model using the simplified interface
-    train_faenet(
-        data_path=config.data.data_dir,
-        target_properties=target_props,
-        output_dir=config.output_dir,
-        frame_averaging=config.training.frame_averaging,
-        fa_method=config.training.fa_method,
-        cutoff=config.model.cutoff,
-        max_neighbors=config.model.max_neighbors,
-        batch_size=config.training.batch_size,
-        epochs=config.training.epochs,
-        learning_rate=config.training.lr,
-        seed=config.training.seed,
-        device=config.device,
-        num_workers=config.training.num_workers,
-        num_gaussians=config.model.num_gaussians,
-        hidden_channels=config.model.hidden_channels,
-        num_filters=config.model.num_filters,
-        num_interactions=config.model.num_interactions,
-        dropout=config.model.dropout,
-        regress_forces=config.model.regress_forces
-    )
     
     
 if __name__ == "__main__":

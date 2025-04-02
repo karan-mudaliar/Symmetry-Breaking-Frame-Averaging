@@ -6,7 +6,7 @@ import torch
 import pandas as pd
 from tqdm import tqdm
 
-from config import get_config, Config, ModelConfig, DataConfig, TrainingConfig
+from config import get_config, Config, ModelConfig, DataConfig, TrainingConfig, SimpleConfig
 from graph_construction import structure_dict_to_graph
 from frame_averaging import frame_averaging_3D
 from dataset import EnhancedSlabDataset, create_dataloader
@@ -249,13 +249,56 @@ def test_forward_with_frames():
         print(f"Error in test_forward_with_frames: {e}")
         return False
 
+def test_simple_config():
+    """Test SimpleConfig and conversion to nested Config."""
+    print("\n=== Testing SimpleConfig ===")
+    
+    # Create a SimpleConfig
+    simple_config = SimpleConfig(
+        cutoff=5.0,
+        max_neighbors=30,
+        hidden_channels=64,
+        frame_averaging="2D",
+        data_dir="test_data/surface_prop_data_set_top_bottom.csv",
+        structure_col="slab",
+        target_properties=["WF_top", "WF_bottom"],
+        batch_size=4
+    )
+    
+    print(f"Simple config created: cutoff={simple_config.cutoff}, frame_averaging={simple_config.frame_averaging}")
+    
+    # Convert to nested config
+    nested_config = simple_config.to_nested_config()
+    
+    print(f"Converted to nested config: cutoff={nested_config.model.cutoff}, frame_averaging={nested_config.training.frame_averaging}")
+    
+    # Test dataset creation with SimpleConfig
+    dataset = EnhancedSlabDataset(
+        data_source=simple_config.data_dir,
+        structure_col=simple_config.structure_col,
+        target_props=simple_config.target_properties,
+        cutoff=simple_config.cutoff,
+        max_neighbors=simple_config.max_neighbors,
+        frame_averaging=simple_config.frame_averaging,
+        fa_method=simple_config.fa_method
+    )
+    
+    if len(dataset) > 0:
+        print(f"Successfully created dataset with {len(dataset)} structures using SimpleConfig")
+        return True
+    else:
+        print("Failed to create dataset with SimpleConfig")
+        return False
+
+
 def run_all_tests():
     """Run all integration tests."""
     tests = [
         test_csv_loading,
         test_frame_averaging,
         test_dataloader_creation,
-        test_forward_with_frames
+        test_forward_with_frames,
+        test_simple_config
     ]
     
     results = {}
