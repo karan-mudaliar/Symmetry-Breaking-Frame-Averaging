@@ -4,21 +4,35 @@ Test script to validate the integration of frame averaging with enhanced graph c
 import os
 import torch
 import pandas as pd
+from pathlib import Path
 from tqdm import tqdm
 
 from config import get_config, Config, ModelConfig, DataConfig, TrainingConfig, SimpleConfig
+
 from graph_construction import structure_dict_to_graph
 from frame_averaging import frame_averaging_3D
 from dataset import EnhancedSlabDataset, create_dataloader
+
+# Use an absolute path to the test data file
+TEST_DATA_PATH = os.path.abspath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 
+    "..", "test_data", "surface_prop_data_set_top_bottom.csv"
+))
+
+# Print test data path for debugging
+print(f"Test data path: {TEST_DATA_PATH}")
+print(f"File exists: {os.path.exists(TEST_DATA_PATH)}")
 
 def test_csv_loading():
     """Test loading structures from CSV file."""
     print("\n=== Testing CSV Loading ===")
     
+    print(f"Using test data file: {TEST_DATA_PATH}")
+    
     # Prepare test configuration
     config = Config(
         data=DataConfig(
-            data_dir="../test_data/surface_prop_data_set_top_bottom.csv",  # Go up one directory to FAENET/test_data
+            data_dir=TEST_DATA_PATH,  # Use absolute path
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
         ),
@@ -65,7 +79,7 @@ def test_frame_averaging():
     # Prepare test configuration
     config = Config(
         data=DataConfig(
-            data_dir="../test_data/surface_prop_data_set_top_bottom.csv",  # Go up one directory to FAENET/test_data
+            data_dir=TEST_DATA_PATH,  # Use absolute path
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
         ),
@@ -123,7 +137,7 @@ def test_dataloader_creation():
     # Prepare test configuration
     config = Config(
         data=DataConfig(
-            data_dir="../test_data/surface_prop_data_set_top_bottom.csv",  # Go up one directory to FAENET/test_data
+            data_dir=TEST_DATA_PATH,  # Use absolute path
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
         ),
@@ -183,7 +197,7 @@ def test_forward_with_frames():
         
         # Create a mini-batch with frame averaging
         dataset = EnhancedSlabDataset(
-            data_source="../test_data/surface_prop_data_set_top_bottom.csv",  # Go up one directory to FAENET/test_data
+            data_source=TEST_DATA_PATH,  # Use absolute path
             structure_col="slab",
             target_props=["WF_top"],
             frame_averaging="3D",
@@ -259,7 +273,7 @@ def test_simple_config():
         max_neighbors=30,
         hidden_channels=64,
         frame_averaging="2D",
-        data_dir="../test_data/surface_prop_data_set_top_bottom.csv",  # Go up one directory to FAENET/test_data
+        data_dir=TEST_DATA_PATH,  # Use absolute path
         structure_col="slab",
         target_properties=["WF_top", "WF_bottom"],
         batch_size=4
