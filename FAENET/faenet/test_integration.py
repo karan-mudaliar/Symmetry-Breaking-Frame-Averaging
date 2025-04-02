@@ -18,7 +18,7 @@ def test_csv_loading():
     # Prepare test configuration
     config = Config(
         data=DataConfig(
-            data_dir="test_data/surface_prop_data_set_top_bottom.csv",
+            data_dir="../test_data/surface_prop_data_set_top_bottom.csv",  # Go up one directory to FAENET/test_data
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
         ),
@@ -65,7 +65,7 @@ def test_frame_averaging():
     # Prepare test configuration
     config = Config(
         data=DataConfig(
-            data_dir="test_data/surface_prop_data_set_top_bottom.csv",
+            data_dir="../test_data/surface_prop_data_set_top_bottom.csv",  # Go up one directory to FAENET/test_data
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
         ),
@@ -123,7 +123,7 @@ def test_dataloader_creation():
     # Prepare test configuration
     config = Config(
         data=DataConfig(
-            data_dir="test_data/surface_prop_data_set_top_bottom.csv",
+            data_dir="../test_data/surface_prop_data_set_top_bottom.csv",  # Go up one directory to FAENET/test_data
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
         ),
@@ -183,7 +183,7 @@ def test_forward_with_frames():
         
         # Create a mini-batch with frame averaging
         dataset = EnhancedSlabDataset(
-            data_source="test_data/surface_prop_data_set_top_bottom.csv",
+            data_source="../test_data/surface_prop_data_set_top_bottom.csv",  # Go up one directory to FAENET/test_data
             structure_col="slab",
             target_props=["WF_top"],
             frame_averaging="3D",
@@ -259,7 +259,7 @@ def test_simple_config():
         max_neighbors=30,
         hidden_channels=64,
         frame_averaging="2D",
-        data_dir="data",  # Use a generic path to avoid file not found
+        data_dir="../test_data/surface_prop_data_set_top_bottom.csv",  # Go up one directory to FAENET/test_data
         structure_col="slab",
         target_properties=["WF_top", "WF_bottom"],
         batch_size=4
