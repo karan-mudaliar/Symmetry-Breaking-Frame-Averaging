@@ -83,7 +83,7 @@ def train(model, train_loader, val_loader, device, config):
             
             # Apply frame averaging
             if frame_averaging:
-                batch = apply_frame_averaging_to_batch(batch, fa_method)
+                batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
                 
                 # Process with frame averaging
                 e_all, f_all = [], []
@@ -180,7 +180,7 @@ def train(model, train_loader, val_loader, device, config):
                 batch = batch.to(device)
                 
                 if config.training.frame_averaging:
-                    batch = apply_frame_averaging_to_batch(batch, config.training.fa_method)
+                    batch = apply_frame_averaging_to_batch(batch, config.training.fa_method, config.training.frame_averaging)
                     
                     # Process with frame averaging
                     e_all = [[] for _ in model.output_properties]
@@ -295,7 +295,7 @@ def run_inference(model, data_loader, device, config, output_file):
             frame_averaging = get_config_param(config, "training.frame_averaging", None)
             fa_method = get_config_param(config, "training.fa_method", "all")
             if frame_averaging:
-                batch = apply_frame_averaging_to_batch(batch, fa_method)
+                batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
                 
                 # Process with frame averaging
                 e_all = {prop: [] for prop in model.output_properties}

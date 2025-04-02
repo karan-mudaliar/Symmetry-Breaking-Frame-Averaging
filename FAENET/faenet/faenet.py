@@ -358,9 +358,15 @@ class FAENet(nn.Module):
         if isinstance(cell, list):
             # If cell is a list (can happen with frame averaging), use the first element
             cell = cell[0]
+        
+        # Handle the specific case where cell has shape [12, 3] - which happens with 
+        # 2D frame averaging and 4 frames (4 frames * 3 rows = 12 rows)
+        if cell.shape == torch.Size([12, 3]):
+            # Take first 3 rows to get a 3x3 cell
+            cell = cell[:3].clone()
             
         # If cell has more than 2 dimensions, try to extract a 3x3 matrix
-        if cell.dim() > 2:
+        elif cell.dim() > 2:
             if cell.shape[-2:] == (3, 3):
                 # If the last two dimensions are 3x3, use that
                 cell = cell.reshape(-1, 3, 3)[0]
@@ -368,6 +374,15 @@ class FAENet(nn.Module):
                 # Otherwise, try to reshape or extract appropriate dimensions
                 cell = cell.reshape(-1, 3)[:3].reshape(3, 3)
         
+        # Final check to ensure cell has shape [3, 3]
+        if cell.shape != torch.Size([3, 3]):
+            # Reshape if we have enough elements
+            if cell.numel() >= 9:
+                cell = cell.reshape(-1)[:9].reshape(3, 3)
+            else:
+                # Last resort: use identity matrix
+                cell = torch.eye(3, device=pos.device)
+                
         # Convert cell offsets to cartesian
         offsets = torch.matmul(cell_offsets, cell)
         

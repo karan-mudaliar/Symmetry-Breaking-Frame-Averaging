@@ -265,20 +265,24 @@ def create_dataloader(
     return train_loader, val_loader, test_loader, dataset
 
 # Maintain backward compatibility
-def apply_frame_averaging_to_batch(batch, fa_method="all"):
+def apply_frame_averaging_to_batch(batch, fa_method="all", dimension="3D"):
     """Apply frame averaging to a batch of data
     
     Args:
         batch: PyTorch Geometric batch
         fa_method: Frame averaging method
+        dimension: Dimension of frame averaging ("2D" or "3D")
         
     Returns:
         batch: Updated batch with fa_pos, fa_cell, fa_rot attributes
     """
-    from frame_averaging import frame_averaging_3D
+    from frame_averaging import frame_averaging_3D, frame_averaging_2D
     
-    # Apply frame averaging
-    fa_pos, fa_cell, fa_rot = frame_averaging_3D(batch.pos, batch.cell, fa_method)
+    # Apply frame averaging based on dimension
+    if dimension == "2D":
+        fa_pos, fa_cell, fa_rot = frame_averaging_2D(batch.pos, batch.cell, fa_method)
+    else:
+        fa_pos, fa_cell, fa_rot = frame_averaging_3D(batch.pos, batch.cell, fa_method)
     
     # Store frame averaging results
     batch.fa_pos = fa_pos
