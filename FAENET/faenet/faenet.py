@@ -341,7 +341,7 @@ class FAENet(nn.Module):
         Args:
             pos: Atom positions
             edge_index: Graph connectivity
-            cell: Unit cell
+            cell: Unit cell (should be a 3x3 tensor)
             cell_offsets: Offsets for periodic boundary conditions
             neighbors: Number of neighbors for each atom
             
@@ -350,47 +350,30 @@ class FAENet(nn.Module):
         """
         row, col = edge_index
         
-        # Apply cell offsets for periodic boundary conditions
-        cell_offsets = cell_offsets.to(pos.device)
+        # Convert inputs to the right types and devices
+        cell_offsets = cell_offsets.to(pos.device).float()
         
-        # Ensure cell_offsets has float dtype for matrix multiplication
-        if cell_offsets.dtype != torch.float:
-            cell_offsets = cell_offsets.float()
+        # Ensure cell is correctly shaped for matrix multiplication
+        # For frame averaging, the training loop should set the correct cell for each frame
+        if not isinstance(cell, torch.Tensor):
+            # Handle non-tensor cell
+            cell = torch.tensor(cell, device=pos.device, dtype=torch.float)
         
-        # Handle special cases for cell - as a safety measure
-        # We need cell to be a [3, 3] tensor for proper matrix multiplication
-        if isinstance(cell, list):
-            # If cell is a list (can happen with frame averaging), use the first element
-            cell = cell[0]
-        
-        # Handle the specific case where cell has shape [12, 3] - which happens with 
-        # 2D frame averaging and 4 frames (4 frames * 3 rows = 12 rows)
-        if cell.shape == torch.Size([12, 3]):
-            # Take first 3 rows to get a 3x3 cell
-            cell = cell[:3].clone()
-            
-        # If cell has more than 2 dimensions, try to extract a 3x3 matrix
-        elif cell.dim() > 2:
-            if cell.shape[-2:] == (3, 3):
-                # If the last two dimensions are 3x3, use that
-                cell = cell.reshape(-1, 3, 3)[0]
-            else:
-                # Otherwise, try to reshape or extract appropriate dimensions
-                cell = cell.reshape(-1, 3)[:3].reshape(3, 3)
-        
-        # Final check to ensure cell has shape [3, 3]
-        if cell.shape != torch.Size([3, 3]):
-            # Reshape if we have enough elements
-            if cell.numel() >= 9:
+        # Simple shape fix for common cases
+        if cell.shape != (3, 3):
+            if cell.shape == (12, 3) and cell.dim() == 2:
+                # This shape occurs with 2D frame averaging (4 frames, 3 rows per frame)
+                cell = cell[:3].clone()
+            elif cell.numel() >= 9:
+                # If we have enough elements, reshape to 3x3
                 cell = cell.reshape(-1)[:9].reshape(3, 3)
             else:
-                # Last resort: use identity matrix
+                # If we can't get a proper cell, use identity
                 cell = torch.eye(3, device=pos.device)
         
-        # Ensure cell has float dtype
-        if cell.dtype != torch.float:
-            cell = cell.float()
-                
+        # Ensure float dtype
+        cell = cell.float()
+        
         # Convert cell offsets to cartesian
         offsets = torch.matmul(cell_offsets, cell)
         

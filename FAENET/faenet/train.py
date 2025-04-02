@@ -86,14 +86,18 @@ def train(model, train_loader, val_loader, device, config):
                 batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
                 
                 # Process with frame averaging
-                e_all, f_all = [], []
+                # For each property we'll have a list of predictions across frames
+                e_all = [[] for _ in model.output_properties]
+                
                 for i in range(len(batch.fa_pos)):
-                    # Set current frame
+                    # Store original position and cell
                     original_pos = batch.pos.clone()
+                    original_cell = None
+                    
+                    # Set position for this frame
                     batch.pos = batch.fa_pos[i]
                     
-                    # Also set the correct cell for this frame if available
-                    original_cell = None
+                    # Set the corresponding cell for this frame
                     if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
                         original_cell = batch.cell.clone() if isinstance(batch.cell, torch.Tensor) else batch.cell
                         batch.cell = batch.fa_cell[i]
@@ -101,49 +105,33 @@ def train(model, train_loader, val_loader, device, config):
                     # Forward pass
                     preds = model(batch)
                     
-                    # Collect predictions
-                    for prop in model.output_properties:
-                        if i == 0:
-                            e_all.append([preds[prop]])
-                        else:
-                            e_all[-1].append(preds[prop])
-                    
-                    # Transform forces if needed
-                    if model.regress_forces and "forces" in preds:
-                        fa_rot = torch.repeat_interleave(
-                            batch.fa_rot[i], batch.natoms, dim=0
-                        ).to(device)
-                        forces = (
-                            preds["forces"]
-                            .view(-1, 1, 3)
-                            .bmm(fa_rot.transpose(1, 2))
-                            .view(-1, 3)
-                        )
-                        f_all.append(forces)
+                    # Collect predictions for each property
+                    for prop_idx, prop in enumerate(model.output_properties):
+                        e_all[prop_idx].append(preds[prop])
                     
                     # Restore original positions and cell
                     batch.pos = original_pos
                     if original_cell is not None:
                         batch.cell = original_cell
                 
-                # Average predictions
+                # Calculate loss by averaging predictions across frames
                 loss = 0
                 for prop_idx, prop in enumerate(model.output_properties):
                     if hasattr(batch, prop):
-                        prop_loss = criterion(
-                            sum(e_all[prop_idx]) / len(e_all[prop_idx]), 
-                            getattr(batch, prop)
-                        )
+                        # Average predictions across frames 
+                        avg_pred = sum(e_all[prop_idx]) / len(e_all[prop_idx])
+                        targets = getattr(batch, prop)
+                        
+                        # Ensure tensors have compatible shapes for loss computation
+                        if avg_pred.dim() != targets.dim():
+                            if avg_pred.dim() > targets.dim():
+                                avg_pred = avg_pred.squeeze()
+                            else:
+                                targets = targets.unsqueeze(-1)
+                        
+                        # Calculate loss for this property
+                        prop_loss = criterion(avg_pred, targets)
                         loss += prop_loss
-                
-                # Add force loss if needed
-                if model.regress_forces and hasattr(batch, "forces") and f_all:
-                    force_loss = criterion(
-                        sum(f_all) / len(f_all), 
-                        batch.forces
-                    )
-                    force_weight = get_config_param(config, "training.force_weight", 0.1)
-                    loss += force_weight * force_loss
             
             else:
                 # Standard forward pass without frame averaging
@@ -153,7 +141,18 @@ def train(model, train_loader, val_loader, device, config):
                 loss = 0
                 for prop in model.output_properties:
                     if hasattr(batch, prop):
-                        prop_loss = criterion(preds[prop], getattr(batch, prop))
+                        # Get predictions and targets, ensure they have the same shape
+                        model_preds = preds[prop]
+                        targets = getattr(batch, prop)
+                        
+                        # Make sure both are the same shape
+                        if model_preds.dim() != targets.dim():
+                            if model_preds.dim() > targets.dim():
+                                model_preds = model_preds.squeeze()
+                            else:
+                                targets = targets.unsqueeze(-1)
+                        
+                        prop_loss = criterion(model_preds, targets)
                         loss += prop_loss
                 
                 # Add force loss if needed
@@ -179,19 +178,24 @@ def train(model, train_loader, val_loader, device, config):
             for batch in tqdm(val_loader, desc="Validating"):
                 batch = batch.to(device)
                 
-                if config.training.frame_averaging:
-                    batch = apply_frame_averaging_to_batch(batch, config.training.fa_method, config.training.frame_averaging)
+                # Get frame averaging settings from either nested or flat config
+                frame_averaging = get_config_param(config, "training.frame_averaging", None)
+                fa_method = get_config_param(config, "training.fa_method", "all")
+                if frame_averaging:
+                    batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
                     
                     # Process with frame averaging
                     e_all = [[] for _ in model.output_properties]
                     
                     for i in range(len(batch.fa_pos)):
-                        # Set current frame
+                        # Store original position and cell
                         original_pos = batch.pos.clone()
+                        original_cell = None
+                        
+                        # Set position for this frame
                         batch.pos = batch.fa_pos[i]
                         
-                        # Also set the correct cell for this frame if available
-                        original_cell = None
+                        # Set the corresponding cell for this frame
                         if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
                             original_cell = batch.cell.clone() if isinstance(batch.cell, torch.Tensor) else batch.cell
                             batch.cell = batch.fa_cell[i]
@@ -199,7 +203,7 @@ def train(model, train_loader, val_loader, device, config):
                         # Forward pass
                         preds = model(batch)
                         
-                        # Collect predictions
+                        # Collect predictions for each property
                         for prop_idx, prop in enumerate(model.output_properties):
                             e_all[prop_idx].append(preds[prop])
                         
@@ -212,10 +216,18 @@ def train(model, train_loader, val_loader, device, config):
                     batch_loss = 0
                     for prop_idx, prop in enumerate(model.output_properties):
                         if hasattr(batch, prop):
-                            prop_val_loss = criterion(
-                                sum(e_all[prop_idx]) / len(e_all[prop_idx]),
-                                getattr(batch, prop)
-                            )
+                            # Average predictions across frames
+                            avg_pred = sum(e_all[prop_idx]) / len(e_all[prop_idx])
+                            targets = getattr(batch, prop)
+                            
+                            # Ensure tensors have compatible shapes for loss computation
+                            if avg_pred.dim() != targets.dim():
+                                if avg_pred.dim() > targets.dim():
+                                    avg_pred = avg_pred.squeeze()
+                                else:
+                                    targets = targets.unsqueeze(-1)
+                            
+                            prop_val_loss = criterion(avg_pred, targets)
                             batch_loss += prop_val_loss
                 else:
                     # Standard forward pass
@@ -225,7 +237,18 @@ def train(model, train_loader, val_loader, device, config):
                     batch_loss = 0
                     for prop in model.output_properties:
                         if hasattr(batch, prop):
-                            prop_val_loss = criterion(preds[prop], getattr(batch, prop))
+                            # Get predictions and targets, ensure they have the same shape
+                            model_preds = preds[prop]
+                            targets = getattr(batch, prop)
+                            
+                            # Make sure both are the same shape
+                            if model_preds.dim() != targets.dim():
+                                if model_preds.dim() > targets.dim():
+                                    model_preds = model_preds.squeeze()
+                                else:
+                                    targets = targets.unsqueeze(-1)
+                            
+                            prop_val_loss = criterion(model_preds, targets)
                             batch_loss += prop_val_loss
                 
                 val_loss += batch_loss.item()
@@ -299,14 +322,13 @@ def run_inference(model, data_loader, device, config, output_file):
                 
                 # Process with frame averaging
                 e_all = {prop: [] for prop in model.output_properties}
-                f_all = []
                 
                 for i in range(len(batch.fa_pos)):
-                    # Set current frame
+                    # Set position for this frame
                     original_pos = batch.pos.clone()
                     batch.pos = batch.fa_pos[i]
                     
-                    # Also set the correct cell for this frame if available
+                    # Set the corresponding cell for this frame
                     original_cell = None
                     if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
                         original_cell = batch.cell.clone() if isinstance(batch.cell, torch.Tensor) else batch.cell
@@ -315,35 +337,19 @@ def run_inference(model, data_loader, device, config, output_file):
                     # Forward pass
                     preds = model(batch)
                     
-                    # Collect predictions
+                    # Collect predictions for each property
                     for prop in model.output_properties:
                         e_all[prop].append(preds[prop])
-                    
-                    # Transform forces if needed
-                    if model.regress_forces and "forces" in preds:
-                        fa_rot = torch.repeat_interleave(
-                            batch.fa_rot[i], batch.natoms, dim=0
-                        ).to(device)
-                        forces = (
-                            preds["forces"]
-                            .view(-1, 1, 3)
-                            .bmm(fa_rot.transpose(1, 2))
-                            .view(-1, 3)
-                        )
-                        f_all.append(forces)
                     
                     # Restore original positions and cell
                     batch.pos = original_pos
                     if original_cell is not None:
                         batch.cell = original_cell
                 
-                # Average predictions
+                # Average predictions across frames
                 final_preds = {}
                 for prop in model.output_properties:
                     final_preds[prop] = (sum(e_all[prop]) / len(e_all[prop])).cpu().numpy()
-                
-                if model.regress_forces and f_all:
-                    final_preds["forces"] = (sum(f_all) / len(f_all)).cpu().numpy()
             else:
                 # Standard forward pass
                 preds = model(batch)
