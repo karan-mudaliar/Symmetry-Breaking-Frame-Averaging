@@ -16,6 +16,12 @@ from faenet import FAENet
 from dataset import EnhancedSlabDataset, apply_frame_averaging_to_batch
 from train import train_faenet  # Use the simplified training interface
 
+
+TEST_DATA_PATH = os.path.abspath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 
+    "..", "test_data", "surface_prop_data_set_top_bottom.csv"
+))
+
 def main():
     """Run a small training job with SimpleConfig"""
     print("=== Testing FAENet Training with SimpleConfig ===")
@@ -48,7 +54,7 @@ def main():
         num_workers=0,  # Use 0 for testing
         
         # Data parameters
-        data_dir=Path("test_data/surface_prop_data_set_top_bottom.csv"),
+        data_dir=Path(TEST_DATA_PATH),  # Path to the test data
         structure_col="slab",
         target_properties=["WF_top", "WF_bottom", "cleavage_energy"],
         pbc=True,
