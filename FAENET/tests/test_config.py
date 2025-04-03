@@ -10,7 +10,7 @@ from pathlib import Path
 # Add the parent directory to sys.path to allow importing the faenet module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from faenet.config import Config, SimpleConfig
+from faenet.config import Config
 
 class TestConfig(unittest.TestCase):
     """Tests for Config functionality"""
@@ -38,18 +38,18 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(custom_config.lr, 0.0001, "Custom lr should be 0.0001")
         self.assertEqual(custom_config.frame_averaging, "2D", "Custom frame_averaging should be 2D")
     
-    def test_backward_compatibility(self):
-        """Test backward compatibility with SimpleConfig alias"""
-        # Ensure SimpleConfig is an alias of Config
-        config = Config(cutoff=5.0, batch_size=16)
-        simple_config = SimpleConfig(cutoff=5.0, batch_size=16)
+    def test_advanced_features(self):
+        """Test advanced Config features"""
+        # Test using different configs with different values
+        config1 = Config(cutoff=5.0, batch_size=16)
+        config2 = Config(cutoff=6.0, batch_size=32)
         
-        # Both should have the same attributes and values
-        self.assertEqual(config.cutoff, simple_config.cutoff)
-        self.assertEqual(config.batch_size, simple_config.batch_size)
+        # Both should have correctly set attributes and values
+        self.assertEqual(config1.cutoff, 5.0)
+        self.assertEqual(config1.batch_size, 16)
         
-        # SimpleConfig should be a subclass of Config
-        self.assertTrue(isinstance(simple_config, Config))
+        self.assertEqual(config2.cutoff, 6.0)
+        self.assertEqual(config2.batch_size, 32)
 
 
 if __name__ == "__main__":

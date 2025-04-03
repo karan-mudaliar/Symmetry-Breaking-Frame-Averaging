@@ -10,7 +10,7 @@ from torch.utils.data import random_split
 
 from dataset import EnhancedSlabDataset, apply_frame_averaging_to_batch
 from faenet import FAENet
-from config import get_config, SimpleConfig, Config
+from config import get_config, Config
 
 
 def train(model, train_loader, val_loader, device, config):
@@ -498,8 +498,8 @@ def train_faenet(
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
-    # Create config object (using SimpleConfig for internal use)
-    config = SimpleConfig(
+    # Create config object
+    config = Config(
         batch_size=batch_size,
         epochs=epochs,
         lr=learning_rate,

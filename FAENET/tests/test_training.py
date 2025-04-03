@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
-Test script for training FAENet with SimpleConfig.
-This script demonstrates training a small model for a few epochs using SimpleConfig.
+Test script for training FAENet.
+This script demonstrates training a small model for a few epochs.
 """
 import os
 import sys
@@ -12,7 +12,7 @@ from pathlib import Path
 # Add the parent directory to sys.path to allow importing the faenet module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from faenet.config import SimpleConfig
+from faenet.config import Config
 from faenet.faenet import FAENet
 from faenet.dataset import EnhancedSlabDataset, apply_frame_averaging_to_batch
 from faenet.train import train_faenet
@@ -23,8 +23,8 @@ TEST_DATA_PATH = os.path.abspath(os.path.join(
     "..", "test_data", "surface_prop_data_set_top_bottom.csv"
 ))
 
-class TestSimpleTraining(unittest.TestCase):
-    """Tests for training with SimpleConfig"""
+class TestTraining(unittest.TestCase):
+    """Tests for training functionality"""
     
     def setUp(self):
         """Set up test environment"""
@@ -38,14 +38,14 @@ class TestSimpleTraining(unittest.TestCase):
         os.makedirs(self.output_dir, exist_ok=True)
     
     def test_training(self):
-        """Test a small training job with SimpleConfig"""
+        """Test a small training job"""
         if not self.test_data_exists:
             self.skipTest("Test data file not found")
             
-        print("=== Testing FAENet Training with SimpleConfig ===")
+        print("=== Testing FAENet Training ===")
         
-        # Set up a simple configuration
-        config = SimpleConfig(
+        # Set up a configuration
+        config = Config(
             # Model parameters
             cutoff=6.0,
             max_neighbors=40,
@@ -82,7 +82,7 @@ class TestSimpleTraining(unittest.TestCase):
             device="cpu"  # Use CPU for testing
         )
         
-        # Run training with SimpleConfig
+        # Run training
         try:
             model, test_loader = train_faenet(
                 data_path=config.data_dir,
@@ -107,7 +107,7 @@ class TestSimpleTraining(unittest.TestCase):
                 regress_forces=config.regress_forces
             )
             
-            print("\n✅ Training completed successfully with SimpleConfig!")
+            print("\n✅ Training completed successfully!")
             
             # Verify the model was saved
             best_model_path = os.path.join(config.output_dir, "best_model.pt")

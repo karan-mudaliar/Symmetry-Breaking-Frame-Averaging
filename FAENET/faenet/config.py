@@ -61,12 +61,6 @@ class Config(BaseModel):
     device: Literal["cuda", "cpu"] = Field("cuda", description="Device to run on")
 
 
-# For backward compatibility with train.py
-class SimpleConfig(Config):
-    """Alias for Config to maintain backward compatibility."""
-    pass
-
-
 # For backward compatibility with very old code
 class FAENetConfig(Config):
     """Alias for Config to maintain backward compatibility with oldest code."""
@@ -77,16 +71,6 @@ def get_config() -> Config:
     """Parse command line arguments into a Config object."""
     config = tyro.cli(Config)
     return config
-
-
-# For backward compatibility
-def get_simple_config() -> Config:
-    """Parse command line arguments into a Config object.
-    
-    This function is provided for backward compatibility with code that
-    used the previous SimpleConfig class.
-    """
-    return get_config()
 
 
 if __name__ == "__main__":

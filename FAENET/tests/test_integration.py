@@ -12,7 +12,7 @@ from pathlib import Path
 # Add the parent directory to sys.path to allow importing the faenet module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from faenet.config import get_config, Config, SimpleConfig
+from faenet.config import get_config, Config
 from faenet.graph_construction import structure_dict_to_graph
 from faenet.frame_averaging import frame_averaging_3D, frame_averaging_2D
 from faenet.dataset import EnhancedSlabDataset, create_dataloader
@@ -215,12 +215,12 @@ class TestIntegration(unittest.TestCase):
         
         self.assertTrue(z_preserved, "2D frame averaging should preserve z-axis coordinates")
     
-    def test_config_compatibility(self):
-        """Test Config and SimpleConfig compatibility."""
-        print("\n=== Testing Config and SimpleConfig ===")
+    def test_config_instances(self):
+        """Test multiple Config instances."""
+        print("\n=== Testing Multiple Config Instances ===")
         
-        # Create both config types with the same parameters
-        config = Config(
+        # Create different config instances
+        config1 = Config(
             cutoff=5.0,
             max_neighbors=30,
             hidden_channels=64,
@@ -230,27 +230,26 @@ class TestIntegration(unittest.TestCase):
             target_properties=["WF_top", "WF_bottom"]
         )
         
-        simple_config = SimpleConfig(
-            cutoff=5.0,
-            max_neighbors=30,
-            hidden_channels=64,
-            frame_averaging="2D",
+        config2 = Config(
+            cutoff=6.0,
+            max_neighbors=40,
+            hidden_channels=128,
+            frame_averaging="3D",
             data_dir=TEST_DATA_PATH,
             structure_col="slab",
-            target_properties=["WF_top", "WF_bottom"]
+            target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
         )
         
-        # Verify compatibility
-        self.assertEqual(config.cutoff, simple_config.cutoff)
-        self.assertEqual(config.hidden_channels, simple_config.hidden_channels)
-        self.assertEqual(config.frame_averaging, simple_config.frame_averaging)
-        self.assertEqual(config.data_dir, simple_config.data_dir)
-        self.assertEqual(config.target_properties, simple_config.target_properties)
+        # Verify each config has correct values
+        self.assertEqual(config1.cutoff, 5.0)
+        self.assertEqual(config1.hidden_channels, 64)
+        self.assertEqual(config1.frame_averaging, "2D")
         
-        # Check that SimpleConfig is a subclass of Config
-        self.assertTrue(isinstance(simple_config, Config))
+        self.assertEqual(config2.cutoff, 6.0)
+        self.assertEqual(config2.hidden_channels, 128)
+        self.assertEqual(config2.frame_averaging, "3D")
         
-        print("Config and SimpleConfig are compatible!")
+        print("Multiple Config instances work correctly!")
 
 
 if __name__ == "__main__":
