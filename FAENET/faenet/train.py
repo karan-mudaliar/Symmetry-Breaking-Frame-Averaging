@@ -85,34 +85,52 @@ def train(model, train_loader, val_loader, device, config):
             if frame_averaging:
                 batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
                 
-                # Process with frame averaging
-                # For each property we'll have a list of predictions across frames
+                # Process all frames at once for better equivariance
+                # Create a batch containing all frames
+                from torch_geometric.data import Batch
+                
+                # Save original positions and cell
+                original_pos = batch.pos.clone()
+                original_cell = batch.cell.clone() if hasattr(batch, 'cell') and isinstance(batch.cell, torch.Tensor) else batch.cell
+                
+                # Create a list of batches, one for each frame
+                all_batches = []
+                for i in range(len(batch.fa_pos)):
+                    # Create a copy of the batch for this frame
+                    frame_batch = batch.clone()
+                    # Update positions and cell for this frame
+                    frame_batch.pos = batch.fa_pos[i]
+                    if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
+                        frame_batch.cell = batch.fa_cell[i]
+                    all_batches.append(frame_batch)
+                
+                # Create a single large batch with all frames
+                combined_batch = Batch.from_data_list(all_batches)
+                
+                # Forward pass with all frames at once
+                all_preds = model(combined_batch)
+                
+                # Split predictions by property and average them
                 e_all = [[] for _ in model.output_properties]
                 
-                for i in range(len(batch.fa_pos)):
-                    # Store original position and cell
-                    original_pos = batch.pos.clone()
-                    original_cell = None
+                # Split predictions by frame
+                batch_size = batch.num_graphs
+                num_frames = len(batch.fa_pos)
+                
+                for prop_idx, prop in enumerate(model.output_properties):
+                    # Get predictions for this property
+                    prop_preds = all_preds[prop]
                     
-                    # Set position for this frame
-                    batch.pos = batch.fa_pos[i]
-                    
-                    # Set the corresponding cell for this frame
-                    if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
-                        original_cell = batch.cell.clone() if isinstance(batch.cell, torch.Tensor) else batch.cell
-                        batch.cell = batch.fa_cell[i]
-                    
-                    # Forward pass
-                    preds = model(batch)
-                    
-                    # Collect predictions for each property
-                    for prop_idx, prop in enumerate(model.output_properties):
-                        e_all[prop_idx].append(preds[prop])
-                    
-                    # Restore original positions and cell
-                    batch.pos = original_pos
-                    if original_cell is not None:
-                        batch.cell = original_cell
+                    # Split by frame
+                    for i in range(num_frames):
+                        start_idx = i * batch_size
+                        end_idx = (i + 1) * batch_size
+                        e_all[prop_idx].append(prop_preds[start_idx:end_idx])
+                
+                # Restore original positions and cell
+                batch.pos = original_pos
+                if hasattr(batch, 'cell') and batch.cell is not None:
+                    batch.cell = original_cell
                 
                 # Calculate loss by averaging predictions across frames
                 loss = 0
@@ -184,33 +202,51 @@ def train(model, train_loader, val_loader, device, config):
                 if frame_averaging:
                     batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
                     
-                    # Process with frame averaging
+                    # Process all frames at once for better equivariance
+                    from torch_geometric.data import Batch
+                    
+                    # Save original positions and cell
+                    original_pos = batch.pos.clone()
+                    original_cell = batch.cell.clone() if hasattr(batch, 'cell') and isinstance(batch.cell, torch.Tensor) else batch.cell
+                    
+                    # Create a list of batches, one for each frame
+                    all_batches = []
+                    for i in range(len(batch.fa_pos)):
+                        # Create a copy of the batch for this frame
+                        frame_batch = batch.clone()
+                        # Update positions and cell for this frame
+                        frame_batch.pos = batch.fa_pos[i]
+                        if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
+                            frame_batch.cell = batch.fa_cell[i]
+                        all_batches.append(frame_batch)
+                    
+                    # Create a single large batch with all frames
+                    combined_batch = Batch.from_data_list(all_batches)
+                    
+                    # Forward pass with all frames at once
+                    all_preds = model(combined_batch)
+                    
+                    # Split predictions by property and average them
                     e_all = [[] for _ in model.output_properties]
                     
-                    for i in range(len(batch.fa_pos)):
-                        # Store original position and cell
-                        original_pos = batch.pos.clone()
-                        original_cell = None
+                    # Split predictions by frame
+                    batch_size = batch.num_graphs
+                    num_frames = len(batch.fa_pos)
+                    
+                    for prop_idx, prop in enumerate(model.output_properties):
+                        # Get predictions for this property
+                        prop_preds = all_preds[prop]
                         
-                        # Set position for this frame
-                        batch.pos = batch.fa_pos[i]
-                        
-                        # Set the corresponding cell for this frame
-                        if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
-                            original_cell = batch.cell.clone() if isinstance(batch.cell, torch.Tensor) else batch.cell
-                            batch.cell = batch.fa_cell[i]
-                        
-                        # Forward pass
-                        preds = model(batch)
-                        
-                        # Collect predictions for each property
-                        for prop_idx, prop in enumerate(model.output_properties):
-                            e_all[prop_idx].append(preds[prop])
-                        
-                        # Restore original positions and cell
-                        batch.pos = original_pos
-                        if original_cell is not None:
-                            batch.cell = original_cell
+                        # Split by frame
+                        for i in range(num_frames):
+                            start_idx = i * batch_size
+                            end_idx = (i + 1) * batch_size
+                            e_all[prop_idx].append(prop_preds[start_idx:end_idx])
+                    
+                    # Restore original positions and cell
+                    batch.pos = original_pos
+                    if hasattr(batch, 'cell') and batch.cell is not None:
+                        batch.cell = original_cell
                     
                     # Calculate validation loss
                     batch_loss = 0
@@ -320,31 +356,51 @@ def run_inference(model, data_loader, device, config, output_file):
             if frame_averaging:
                 batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
                 
-                # Process with frame averaging
+                # Process all frames at once for better equivariance and efficiency
+                from torch_geometric.data import Batch
+                
+                # Save original positions and cell
+                original_pos = batch.pos.clone()
+                original_cell = batch.cell.clone() if hasattr(batch, 'cell') and isinstance(batch.cell, torch.Tensor) else batch.cell
+                
+                # Create a list of batches, one for each frame
+                all_batches = []
+                for i in range(len(batch.fa_pos)):
+                    # Create a copy of the batch for this frame
+                    frame_batch = batch.clone()
+                    # Update positions and cell for this frame
+                    frame_batch.pos = batch.fa_pos[i]
+                    if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
+                        frame_batch.cell = batch.fa_cell[i]
+                    all_batches.append(frame_batch)
+                
+                # Create a single large batch with all frames
+                combined_batch = Batch.from_data_list(all_batches)
+                
+                # Forward pass with all frames at once
+                all_preds = model(combined_batch)
+                
+                # Split predictions by property and organize by frame
                 e_all = {prop: [] for prop in model.output_properties}
                 
-                for i in range(len(batch.fa_pos)):
-                    # Set position for this frame
-                    original_pos = batch.pos.clone()
-                    batch.pos = batch.fa_pos[i]
+                # Split predictions by frame
+                batch_size = batch.num_graphs
+                num_frames = len(batch.fa_pos)
+                
+                for prop in model.output_properties:
+                    # Get predictions for this property
+                    prop_preds = all_preds[prop]
                     
-                    # Set the corresponding cell for this frame
-                    original_cell = None
-                    if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
-                        original_cell = batch.cell.clone() if isinstance(batch.cell, torch.Tensor) else batch.cell
-                        batch.cell = batch.fa_cell[i]
-                    
-                    # Forward pass
-                    preds = model(batch)
-                    
-                    # Collect predictions for each property
-                    for prop in model.output_properties:
-                        e_all[prop].append(preds[prop])
-                    
-                    # Restore original positions and cell
-                    batch.pos = original_pos
-                    if original_cell is not None:
-                        batch.cell = original_cell
+                    # Split by frame
+                    for i in range(num_frames):
+                        start_idx = i * batch_size
+                        end_idx = (i + 1) * batch_size
+                        e_all[prop].append(prop_preds[start_idx:end_idx])
+                
+                # Restore original positions and cell
+                batch.pos = original_pos
+                if hasattr(batch, 'cell') and batch.cell is not None:
+                    batch.cell = original_cell
                 
                 # Average predictions across frames
                 final_preds = {}
@@ -381,7 +437,17 @@ def run_inference(model, data_loader, device, config, output_file):
                 # Add ground truth if available
                 for prop in model.output_properties:
                     if hasattr(batch, prop):
-                        result[f"{prop}_true"] = float(getattr(batch, prop)[i][0].cpu().numpy())
+                        # Handle different tensor shapes correctly
+                        target_tensor = getattr(batch, prop)
+                        if target_tensor.dim() == 0:
+                            # 0-dim tensor
+                            result[f"{prop}_true"] = float(target_tensor.item())
+                        elif target_tensor.dim() == 1:
+                            # 1-dim tensor
+                            result[f"{prop}_true"] = float(target_tensor[i].item())
+                        else:
+                            # 2-dim or higher tensor
+                            result[f"{prop}_true"] = float(target_tensor[i][0].cpu().numpy())
                 
                 if hasattr(batch, "forces"):
                     atoms_per_graph = batch.natoms[i].item()
