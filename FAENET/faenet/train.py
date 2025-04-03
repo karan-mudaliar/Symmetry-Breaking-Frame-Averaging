@@ -8,9 +8,9 @@ import numpy as np
 from tqdm import tqdm
 from torch.utils.data import random_split
 
-from dataset import EnhancedSlabDataset, apply_frame_averaging_to_batch
-from faenet import FAENet
-from config import get_config, Config
+from faenet.dataset import EnhancedSlabDataset, apply_frame_averaging_to_batch
+from faenet.faenet import FAENet
+from faenet.config import get_config, Config
 
 
 def train(model, train_loader, val_loader, device, config):

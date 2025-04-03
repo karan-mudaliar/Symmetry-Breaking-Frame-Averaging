@@ -10,7 +10,7 @@ from torch_geometric.nn import MessagePassing, radius_graph
 from torch_geometric.nn.norm import GraphNorm
 from torch_scatter import scatter
 
-from utils import swish, GaussianSmearing, ForceDecoder, get_distances, conditional_grad
+from faenet.utils import swish, GaussianSmearing, ForceDecoder, get_distances, conditional_grad
 
 
 class EmbeddingBlock(nn.Module):
@@ -408,7 +408,7 @@ def process_batch_with_frame_averaging(model, batch, fa_method="all"):
     Returns:
         dict: Model predictions
     """
-    from frame_averaging import frame_averaging_3D
+    from faenet.frame_averaging import frame_averaging_3D
     
     # Store original positions
     original_pos = batch.pos
