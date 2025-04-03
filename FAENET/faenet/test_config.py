@@ -1,62 +1,51 @@
 #!/usr/bin/env python
 """
-Test script for comparing the nested Config and SimpleConfig functionality.
-This script demonstrates the usage of both config types and ensures they work correctly.
+Test script for Config functionality.
+This tests the Config class without requiring any actual data files.
 """
 import os
 import torch
 import argparse
 from pathlib import Path
 
-from config import Config, SimpleConfig, ModelConfig, TrainingConfig, DataConfig
+from config import Config, SimpleConfig
 
-def test_nested_config():
-    """Test the original nested Config class"""
-    print("\n=== Testing Nested Config ===")
+def test_default_values():
+    """Test that default values are set correctly in Config"""
+    print("\n=== Testing Default Values ===")
     
-    # Create a nested config
-    config = Config(
-        model=ModelConfig(
-            cutoff=5.0,
-            max_neighbors=30,
-            hidden_channels=64,
-            num_filters=64,
-            num_interactions=3,
-            output_properties=["WF_top", "WF_bottom"]
-        ),
-        training=TrainingConfig(
-            batch_size=16,
-            epochs=50,
-            lr=0.0005,
-            frame_averaging="2D",
-            fa_method="all"
-        ),
-        data=DataConfig(
-            data_dir=Path("./data"),  # Use a generic path to avoid file not found
-            structure_col="slab",
-            target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
-        ),
-        output_dir=Path("./nested_output"),
-        device="cpu"
-    )
+    # Create a Config with minimal parameters
+    config = Config()
     
-    # Print configuration
-    print(f"Model cutoff: {config.model.cutoff}")
-    print(f"Training batch size: {config.training.batch_size}")
-    print(f"Frame averaging: {config.training.frame_averaging}")
-    print(f"Data directory: {config.data.data_dir}")
-    print(f"Target properties: {config.data.target_properties}")
-    print(f"Output directory: {config.output_dir}")
+    # Check some default values
+    print("Checking default values...")
+    print(f"Cutoff: {config.cutoff}")
+    print(f"Batch size: {config.batch_size}")
+    print(f"Epochs: {config.epochs}")
+    print(f"Learning rate: {config.lr}")
+    print(f"Frame averaging: {config.frame_averaging}")
+    print(f"FA method: {config.fa_method}")
+    print(f"Regress forces: {config.regress_forces}")
     
+    # Verify values
+    assert config.cutoff == 6.0
+    assert config.batch_size == 32
+    assert config.epochs == 100
+    assert config.lr == 0.001
+    assert config.frame_averaging is None
+    assert config.fa_method == "all"
+    assert config.regress_forces is False
+    
+    print("✅ Default values are set correctly!")
     return config
 
-def test_simple_config():
-    """Test the simplified flat SimpleConfig class"""
-    print("\n=== Testing Simple Config ===")
+def test_param_override():
+    """Test that parameters can be overridden"""
+    print("\n=== Testing Parameter Overrides ===")
     
-    # Create a simple config
-    config = SimpleConfig(
-        cutoff=5.0,
+    # Create a Config with custom parameters
+    config = Config(
+        cutoff=4.0,
         max_neighbors=30,
         hidden_channels=64,
         num_filters=64,
@@ -67,129 +56,113 @@ def test_simple_config():
         lr=0.0005,
         frame_averaging="2D",
         fa_method="all",
-        data_dir=Path("./data"),  # Use a generic path to avoid file not found
+        data_dir=Path("./data"),
         structure_col="slab",
         target_properties=["WF_top", "WF_bottom", "cleavage_energy"],
-        output_dir=Path("./simple_output"),
+        output_dir=Path("./test_output"),
         device="cpu"
     )
     
     # Print configuration
-    print(f"Model cutoff: {config.cutoff}")
-    print(f"Training batch size: {config.batch_size}")
+    print(f"Cutoff: {config.cutoff}")
+    print(f"Batch size: {config.batch_size}")
     print(f"Frame averaging: {config.frame_averaging}")
     print(f"Data directory: {config.data_dir}")
     print(f"Target properties: {config.target_properties}")
     print(f"Output directory: {config.output_dir}")
     
+    # Check overridden values
+    assert config.cutoff == 4.0
+    assert config.batch_size == 16
+    assert config.frame_averaging == "2D"
+    assert config.fa_method == "all"
+    assert config.data_dir == Path("./data")
+    
+    print("✅ Parameter overrides work correctly!")
     return config
 
-def test_conversion():
-    """Test conversion between SimpleConfig and nested Config"""
-    print("\n=== Testing Config Conversion ===")
+def test_backward_compatibility():
+    """Test backward compatibility with SimpleConfig"""
+    print("\n=== Testing Backward Compatibility ===")
     
-    # Create a simple config
-    simple_config = SimpleConfig(
-        cutoff=5.5,
-        max_neighbors=35,
-        hidden_channels=96,
-        num_filters=96,
-        num_interactions=4,
-        output_properties=["WF_top"],
-        batch_size=8,
-        epochs=100,
-        lr=0.001,
-        frame_averaging="3D",
-        fa_method="all",
-        data_dir=Path("./custom_data"),
-        structure_col="structure",
-        target_properties=["WF_top"],
-        output_dir=Path("./converted_output"),
-        device="cuda"
-    )
+    # Create both Config and SimpleConfig instances
+    config = Config(cutoff=5.0, batch_size=16, lr=0.01)
+    simple_config = SimpleConfig(cutoff=5.0, batch_size=16, lr=0.01)
     
-    # Convert to nested config
-    nested_config = simple_config.to_nested_config()
+    # Compare the values
+    print("Config values: ")
+    print(f"Cutoff: {config.cutoff}")
+    print(f"Batch size: {config.batch_size}")
+    print(f"Learning rate: {config.lr}")
     
-    # Print both configs to compare
-    print("--- Original SimpleConfig ---")
+    print("\nSimpleConfig values: ")
     print(f"Cutoff: {simple_config.cutoff}")
-    print(f"Hidden channels: {simple_config.hidden_channels}")
-    print(f"Frame averaging: {simple_config.frame_averaging}")
+    print(f"Batch size: {simple_config.batch_size}")
     print(f"Learning rate: {simple_config.lr}")
     
-    print("\n--- Converted Nested Config ---")
-    print(f"Cutoff: {nested_config.model.cutoff}")
-    print(f"Hidden channels: {nested_config.model.hidden_channels}")
-    print(f"Frame averaging: {nested_config.training.frame_averaging}")
-    print(f"Learning rate: {nested_config.training.lr}")
+    # Verify same values
+    assert config.cutoff == simple_config.cutoff
+    assert config.batch_size == simple_config.batch_size
+    assert config.lr == simple_config.lr
     
-    # Verify conversion was correct
-    assert simple_config.cutoff == nested_config.model.cutoff
-    assert simple_config.hidden_channels == nested_config.model.hidden_channels
-    assert simple_config.frame_averaging == nested_config.training.frame_averaging
-    assert simple_config.lr == nested_config.training.lr
-    assert simple_config.data_dir == nested_config.data.data_dir
-    assert simple_config.target_properties == nested_config.data.target_properties
-    assert simple_config.output_dir == nested_config.output_dir
-    assert simple_config.device == nested_config.device
+    # SimpleConfig should be a subclass of Config
+    assert isinstance(simple_config, Config)
     
-    print("✅ All conversion checks passed!")
-    return simple_config, nested_config
+    print("✅ SimpleConfig is compatible with Config!")
+    return config, simple_config
 
-def simulate_parameters():
-    """Simulate command-line parameter handling with argparse"""
+def test_command_line_args():
+    """Test command-line parameter handling with argparse"""
     print("\n=== Testing Command-line Parameter Handling ===")
     
     # Simulate command line args
     args = argparse.Namespace(
-        simple=True,
         cutoff=4.5,
         batch_size=24,
         frame_averaging="2D",
         data_dir="./simulated_data"
     )
     
-    # Create appropriate config based on --simple flag
-    if args.simple:
-        # Use SimpleConfig for flat structure
-        config = SimpleConfig(
-            cutoff=args.cutoff,
-            batch_size=args.batch_size,
-            frame_averaging=args.frame_averaging,
-            data_dir=Path(args.data_dir)
-        )
-        print(f"Created SimpleConfig from args: cutoff={config.cutoff}, batch_size={config.batch_size}")
-    else:
-        # Use nested Config
-        config = Config(
-            model=ModelConfig(cutoff=args.cutoff),
-            training=TrainingConfig(
-                batch_size=args.batch_size,
-                frame_averaging=args.frame_averaging
-            ),
-            data=DataConfig(data_dir=Path(args.data_dir))
-        )
-        print(f"Created nested Config from args: cutoff={config.model.cutoff}, batch_size={config.training.batch_size}")
+    # Create config from args
+    config = Config(
+        cutoff=args.cutoff,
+        batch_size=args.batch_size,
+        frame_averaging=args.frame_averaging,
+        data_dir=Path(args.data_dir)
+    )
     
+    print(f"Created Config from args: cutoff={config.cutoff}, batch_size={config.batch_size}")
+    
+    # Verify values
+    assert config.cutoff == 4.5
+    assert config.batch_size == 24
+    assert config.frame_averaging == "2D"
+    assert config.data_dir == Path("./simulated_data")
+    
+    # Convert to command line arguments for use in scripts
+    cmd_args = [
+        f"--cutoff={config.cutoff}",
+        f"--batch_size={config.batch_size}",
+        f"--frame_averaging={config.frame_averaging}",
+        f"--data_dir={config.data_dir}"
+    ]
+    print("Command line arguments: " + " ".join(cmd_args))
+    
+    print("✅ Command line argument handling works correctly!")
     return config
 
 def main():
     """Run all config tests"""
     print("=== FAENet Configuration Tests ===")
     
-    # Test both config types
-    nested_config = test_nested_config()
-    simple_config = test_simple_config()
-    
-    # Test conversion
-    converted_simple, converted_nested = test_conversion()
-    
-    # Test parameter handling
-    param_config = simulate_parameters()
+    # Run all tests
+    test_default_values()
+    test_param_override()
+    test_backward_compatibility()
+    test_command_line_args()
     
     print("\n=== All Tests Completed Successfully ===")
-    print("You can now use either the nested Config or SimpleConfig in your code!")
+    print("The Config class is working correctly!")
 
 if __name__ == "__main__":
     main()

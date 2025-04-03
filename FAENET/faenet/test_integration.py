@@ -7,7 +7,7 @@ import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
 
-from config import get_config, Config, ModelConfig, DataConfig, TrainingConfig, SimpleConfig
+from config import get_config, Config, SimpleConfig
 
 from graph_construction import structure_dict_to_graph
 from frame_averaging import frame_averaging_3D
@@ -31,28 +31,22 @@ def test_csv_loading():
     
     # Prepare test configuration
     config = Config(
-        data=DataConfig(
-            data_dir=TEST_DATA_PATH,  # Use absolute path
-            structure_col="slab",
-            target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
-        ),
-        model=ModelConfig(
-            cutoff=6.0,
-            max_neighbors=40
-        ),
-        training=TrainingConfig(
-            frame_averaging=None,
-            batch_size=2
-        )
+        data_dir=TEST_DATA_PATH,  # Use absolute path
+        structure_col="slab",
+        target_properties=["WF_top", "WF_bottom", "cleavage_energy"],
+        cutoff=6.0,
+        max_neighbors=40,
+        frame_averaging=None,
+        batch_size=2
     )
     
     # Create dataset and check first item
     dataset = EnhancedSlabDataset(
-        data_source=config.data.data_dir,
-        structure_col=config.data.structure_col,
-        target_props=config.data.target_properties,
-        cutoff=config.model.cutoff,
-        max_neighbors=config.model.max_neighbors
+        data_source=config.data_dir,
+        structure_col=config.structure_col,
+        target_props=config.target_properties,
+        cutoff=config.cutoff,
+        max_neighbors=config.max_neighbors
     )
     
     print(f"Dataset loaded with {len(dataset)} structures")
@@ -60,7 +54,7 @@ def test_csv_loading():
     if len(dataset) > 0:
         data = dataset[0]
         print(f"First structure: {data.natoms} atoms")
-        print(f"Properties: {[prop for prop in config.data.target_properties if hasattr(data, prop)]}")
+        print(f"Properties: {[prop for prop in config.target_properties if hasattr(data, prop)]}")
         
         # Check that the graph was constructed correctly
         print(f"Number of nodes: {data.x.size(0)}")
@@ -78,31 +72,25 @@ def test_frame_averaging():
     
     # Prepare test configuration
     config = Config(
-        data=DataConfig(
-            data_dir=TEST_DATA_PATH,  # Use absolute path
-            structure_col="slab",
-            target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
-        ),
-        model=ModelConfig(
-            cutoff=6.0,
-            max_neighbors=40
-        ),
-        training=TrainingConfig(
-            frame_averaging="3D",
-            fa_method="all",
-            batch_size=2
-        )
+        data_dir=TEST_DATA_PATH,  # Use absolute path
+        structure_col="slab",
+        target_properties=["WF_top", "WF_bottom", "cleavage_energy"],
+        cutoff=6.0,
+        max_neighbors=40,
+        frame_averaging="3D",
+        fa_method="all",
+        batch_size=2
     )
     
     # Create dataset with frame averaging
     dataset = EnhancedSlabDataset(
-        data_source=config.data.data_dir,
-        structure_col=config.data.structure_col,
-        target_props=config.data.target_properties,
-        cutoff=config.model.cutoff,
-        max_neighbors=config.model.max_neighbors,
-        frame_averaging=config.training.frame_averaging,
-        fa_method=config.training.fa_method
+        data_source=config.data_dir,
+        structure_col=config.structure_col,
+        target_props=config.target_properties,
+        cutoff=config.cutoff,
+        max_neighbors=config.max_neighbors,
+        frame_averaging=config.frame_averaging,
+        fa_method=config.fa_method
     )
     
     print(f"Dataset loaded with {len(dataset)} structures")
@@ -136,38 +124,32 @@ def test_dataloader_creation():
     
     # Prepare test configuration
     config = Config(
-        data=DataConfig(
-            data_dir=TEST_DATA_PATH,  # Use absolute path
-            structure_col="slab",
-            target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
-        ),
-        model=ModelConfig(
-            cutoff=6.0,
-            max_neighbors=40
-        ),
-        training=TrainingConfig(
-            frame_averaging="3D",
-            fa_method="all",
-            batch_size=2,
-            train_ratio=0.6,
-            val_ratio=0.2,
-            test_ratio=0.2
-        )
+        data_dir=TEST_DATA_PATH,  # Use absolute path
+        structure_col="slab",
+        target_properties=["WF_top", "WF_bottom", "cleavage_energy"],
+        cutoff=6.0,
+        max_neighbors=40,
+        frame_averaging="3D",
+        fa_method="all",
+        batch_size=2,
+        train_ratio=0.6,
+        val_ratio=0.2,
+        test_ratio=0.2
     )
     
     # Create dataloaders
     train_loader, val_loader, test_loader, dataset = create_dataloader(
-        data_source=config.data.data_dir,
-        structure_col=config.data.structure_col,
-        target_props=config.data.target_properties,
-        cutoff=config.model.cutoff,
-        max_neighbors=config.model.max_neighbors,
-        frame_averaging=config.training.frame_averaging,
-        fa_method=config.training.fa_method,
-        batch_size=config.training.batch_size,
-        train_ratio=config.training.train_ratio,
-        val_ratio=config.training.val_ratio,
-        test_ratio=config.training.test_ratio
+        data_source=config.data_dir,
+        structure_col=config.structure_col,
+        target_props=config.target_properties,
+        cutoff=config.cutoff,
+        max_neighbors=config.max_neighbors,
+        frame_averaging=config.frame_averaging,
+        fa_method=config.fa_method,
+        batch_size=config.batch_size,
+        train_ratio=config.train_ratio,
+        val_ratio=config.val_ratio,
+        test_ratio=config.test_ratio
     )
     
     # Check splits
@@ -180,7 +162,7 @@ def test_dataloader_creation():
     # Try loading a batch
     for batch in train_loader:
         print(f"Batch size: {batch.num_graphs}")
-        print(f"Batch properties: {[prop for prop in config.data.target_properties if hasattr(batch, prop)]}")
+        print(f"Batch properties: {[prop for prop in config.target_properties if hasattr(batch, prop)]}")
         print(f"Has frame averaging: {hasattr(batch, 'fa_pos')}")
         if hasattr(batch, 'fa_pos'):
             print(f"Number of frames: {len(batch.fa_pos)}")
@@ -249,11 +231,23 @@ def test_forward_with_frames():
         traceback.print_exc()
         return False
 
-def test_simple_config():
-    """Test SimpleConfig and conversion to nested Config."""
-    print("\n=== Testing SimpleConfig ===")
+def test_config_aliases():
+    """Test Config and its aliases (SimpleConfig)."""
+    print("\n=== Testing Config Aliases ===")
     
-    # Create a SimpleConfig
+    # Create a Config
+    config = Config(
+        cutoff=5.0,
+        max_neighbors=30,
+        hidden_channels=64,
+        frame_averaging="2D",
+        data_dir=TEST_DATA_PATH,  # Use absolute path
+        structure_col="slab",
+        target_properties=["WF_top", "WF_bottom"],
+        batch_size=4
+    )
+    
+    # Create a SimpleConfig with the same parameters
     simple_config = SimpleConfig(
         cutoff=5.0,
         max_neighbors=30,
@@ -265,21 +259,20 @@ def test_simple_config():
         batch_size=4
     )
     
-    print(f"Simple config created: cutoff={simple_config.cutoff}, frame_averaging={simple_config.frame_averaging}")
+    print(f"Config created: cutoff={config.cutoff}, frame_averaging={config.frame_averaging}")
+    print(f"SimpleConfig created: cutoff={simple_config.cutoff}, frame_averaging={simple_config.frame_averaging}")
     
-    # Convert to nested config
-    nested_config = simple_config.to_nested_config()
+    # Verify both configs have the same values
+    assert config.cutoff == simple_config.cutoff
+    assert config.hidden_channels == simple_config.hidden_channels
+    assert config.frame_averaging == simple_config.frame_averaging
+    assert config.data_dir == simple_config.data_dir
+    assert config.target_properties == simple_config.target_properties
     
-    print(f"Converted to nested config: cutoff={nested_config.model.cutoff}, frame_averaging={nested_config.training.frame_averaging}")
+    # Verify SimpleConfig is a subclass of Config
+    assert isinstance(simple_config, Config)
     
-    # Verify conversion was correct
-    assert simple_config.cutoff == nested_config.model.cutoff
-    assert simple_config.hidden_channels == nested_config.model.hidden_channels
-    assert simple_config.frame_averaging == nested_config.training.frame_averaging
-    assert simple_config.data_dir == nested_config.data.data_dir
-    assert simple_config.target_properties == nested_config.data.target_properties
-    
-    print("SimpleConfig conversion test passed!")
+    print("Config and SimpleConfig aliases work correctly!")
     return True
 
 
@@ -290,7 +283,7 @@ def run_all_tests():
         test_frame_averaging,
         test_dataloader_creation,
         test_forward_with_frames,
-        test_simple_config
+        test_config_aliases
     ]
     
     results = {}
