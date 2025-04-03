@@ -16,8 +16,8 @@ from torch_geometric.data import Data
 import torch_geometric.transforms as T
 
 from pymatgen.core import Structure
-from frame_averaging import frame_averaging_3D, frame_averaging_2D
-from graph_construction import structure_dict_to_graph, structure_to_graph
+from faenet.frame_averaging import frame_averaging_3D, frame_averaging_2D
+from faenet.graph_construction import structure_dict_to_graph, structure_to_graph
 
 class EnhancedSlabDataset(Dataset):
     """
@@ -276,7 +276,7 @@ def apply_frame_averaging_to_batch(batch, fa_method="all", dimension="3D"):
     Returns:
         batch: Updated batch with fa_pos, fa_cell, fa_rot attributes
     """
-    from frame_averaging import frame_averaging_3D, frame_averaging_2D
+    from faenet.frame_averaging import frame_averaging_3D, frame_averaging_2D
     
     # Apply frame averaging based on dimension
     if dimension == "2D":
