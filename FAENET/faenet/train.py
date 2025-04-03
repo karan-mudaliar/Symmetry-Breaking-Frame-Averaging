@@ -10,33 +10,7 @@ from torch.utils.data import random_split
 
 from dataset import EnhancedSlabDataset, apply_frame_averaging_to_batch
 from faenet import FAENet
-from config import get_config, get_simple_config, FAENetConfig, SimpleConfig
-
-
-def get_config_param(config, nested_path, default=None):
-    """Get parameter from either nested or flat config
-    
-    Args:
-        config: Config object (either SimpleConfig or Config)
-        nested_path: Path in nested config (e.g., "training.lr")
-        default: Default value if parameter not found
-        
-    Returns:
-        Parameter value
-    """
-    if isinstance(config, SimpleConfig):
-        # For flat config, use the last part of the path
-        param_name = nested_path.split('.')[-1]
-        return getattr(config, param_name, default)
-    else:
-        # For nested config, traverse the path
-        parts = nested_path.split('.')
-        current = config
-        for part in parts:
-            if not hasattr(current, part):
-                return default
-            current = getattr(current, part)
-        return current
+from config import get_config, SimpleConfig, Config
 
 
 def train(model, train_loader, val_loader, device, config):
@@ -47,16 +21,16 @@ def train(model, train_loader, val_loader, device, config):
         train_loader: Training data loader
         val_loader: Validation data loader
         device: Device to run on (cpu or cuda)
-        config: Configuration object (SimpleConfig or Config)
+        config: Configuration object
     """
-    # Get parameters from config (works with both SimpleConfig and nested Config)
-    lr = get_config_param(config, "training.lr", 0.001)
-    epochs = get_config_param(config, "training.epochs", 100)
-    frame_averaging = get_config_param(config, "training.frame_averaging", None)
-    fa_method = get_config_param(config, "training.fa_method", "all")
-    force_weight = get_config_param(config, "training.force_weight", 0.1)
-    checkpoint_interval = get_config_param(config, "training.checkpoint_interval", 10)
-    output_dir = get_config_param(config, "output_dir", "./outputs")
+    # Get parameters directly from config
+    lr = config.lr
+    epochs = config.epochs
+    frame_averaging = config.frame_averaging
+    fa_method = config.fa_method
+    force_weight = config.force_weight
+    checkpoint_interval = config.checkpoint_interval
+    output_dir = config.output_dir
     
     # Optimizer
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -176,8 +150,7 @@ def train(model, train_loader, val_loader, device, config):
                 # Add force loss if needed
                 if model.regress_forces and "forces" in preds and hasattr(batch, "forces"):
                     force_loss = criterion(preds["forces"], batch.forces)
-                    force_weight = get_config_param(config, "training.force_weight", 0.1)
-                    loss += force_weight * force_loss
+                    loss += config.force_weight * force_loss
             
             # Backpropagation
             optimizer.zero_grad()
@@ -196,9 +169,9 @@ def train(model, train_loader, val_loader, device, config):
             for batch in tqdm(val_loader, desc="Validating"):
                 batch = batch.to(device)
                 
-                # Get frame averaging settings from either nested or flat config
-                frame_averaging = get_config_param(config, "training.frame_averaging", None)
-                fa_method = get_config_param(config, "training.fa_method", "all")
+                # Get frame averaging settings from config
+                frame_averaging = config.frame_averaging
+                fa_method = config.fa_method
                 if frame_averaging:
                     batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
                     
@@ -343,7 +316,7 @@ def run_inference(model, data_loader, device, config, output_file):
             batch = batch.to(device)
             
             # Get original file identifiers
-            batch_size = get_config_param(config, "training.batch_size", 32)
+            batch_size = config.batch_size
             file_indices = data_loader.dataset.indices[batch_idx * batch_size:
                                                      min((batch_idx + 1) * batch_size, 
                                                          len(data_loader.dataset))]
@@ -351,8 +324,8 @@ def run_inference(model, data_loader, device, config, output_file):
             file_names = [data_loader.dataset.dataset.file_list[idx] for idx in file_indices]
             
             # Apply frame averaging if requested
-            frame_averaging = get_config_param(config, "training.frame_averaging", None)
-            fa_method = get_config_param(config, "training.fa_method", "all")
+            frame_averaging = config.frame_averaging
+            fa_method = config.fa_method
             if frame_averaging:
                 batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
                 
@@ -625,93 +598,45 @@ def train_faenet(
 
 
 def main():
-    # Parse command-line args first to check for --simple flag
-    parser = argparse.ArgumentParser(description="FAENet training script")
-    parser.add_argument("--simple", action="store_true", help="Use simplified flat config structure")
+    # Get configuration
+    config = get_config()
     
-    # Only parse the --simple argument
-    args, _ = parser.parse_known_args()
+    # Set random seed
+    torch.manual_seed(config.seed)
+    np.random.seed(config.seed)
     
-    # Get configuration based on flag
-    if args.simple:
-        config = get_simple_config()
-        
-        # Set random seed
-        torch.manual_seed(config.seed)
-        np.random.seed(config.seed)
-        
-        # Create output directory
-        os.makedirs(config.output_dir, exist_ok=True)
-        
-        # Prepare target properties
-        target_props = {}
-        if config.prop_files:
-            for prop, file in zip(config.target_properties, config.prop_files):
-                target_props[prop] = file
-        
-        # Train model using the simplified interface
-        train_faenet(
-            data_path=config.data_dir,
-            structure_col=config.structure_col,
-            target_properties=config.target_properties,
-            output_dir=config.output_dir,
-            frame_averaging=config.frame_averaging,
-            fa_method=config.fa_method,
-            cutoff=config.cutoff,
-            max_neighbors=config.max_neighbors,
-            batch_size=config.batch_size,
-            epochs=config.epochs,
-            learning_rate=config.lr,
-            seed=config.seed,
-            device=config.device,
-            num_workers=config.num_workers,
-            num_gaussians=config.num_gaussians,
-            hidden_channels=config.hidden_channels,
-            num_filters=config.num_filters,
-            num_interactions=config.num_interactions,
-            dropout=config.dropout,
-            regress_forces=config.regress_forces
-        )
-    else:
-        # Use the original nested config
-        config = get_config()
-        
-        # Set random seed
-        torch.manual_seed(config.training.seed)
-        np.random.seed(config.training.seed)
-        
-        # Create output directory
-        os.makedirs(config.output_dir, exist_ok=True)
-        
-        # Prepare target properties
-        target_props = {}
-        if config.data.prop_files:
-            for prop, file in zip(config.data.target_properties, config.data.prop_files):
-                target_props[prop] = file
-        
-        # Train model using the simplified interface with nested config
-        train_faenet(
-            data_path=config.data.data_dir,
-            structure_col=config.data.structure_col,
-            target_properties=config.data.target_properties,
-            output_dir=config.output_dir,
-            frame_averaging=config.training.frame_averaging,
-            fa_method=config.training.fa_method,
-            cutoff=config.model.cutoff,
-            max_neighbors=config.model.max_neighbors,
-            batch_size=config.training.batch_size,
-            epochs=config.training.epochs,
-            learning_rate=config.training.lr,
-            seed=config.training.seed,
-            device=config.device,
-            num_workers=config.training.num_workers,
-            num_gaussians=config.model.num_gaussians,
-            hidden_channels=config.model.hidden_channels,
-            num_filters=config.model.num_filters,
-            num_interactions=config.model.num_interactions,
-            dropout=config.model.dropout,
-            regress_forces=config.model.regress_forces
-        )
+    # Create output directory
+    os.makedirs(config.output_dir, exist_ok=True)
+    
+    # Prepare target properties
+    target_props = {}
+    if config.prop_files:
+        for prop, file in zip(config.target_properties, config.prop_files):
+            target_props[prop] = file
+    
+    # Train model
+    train_faenet(
+        data_path=config.data_dir,
+        structure_col=config.structure_col,
+        target_properties=config.target_properties,
+        output_dir=config.output_dir,
+        frame_averaging=config.frame_averaging,
+        fa_method=config.fa_method,
+        cutoff=config.cutoff,
+        max_neighbors=config.max_neighbors,
+        batch_size=config.batch_size,
+        epochs=config.epochs,
+        learning_rate=config.lr,
+        seed=config.seed,
+        device=config.device,
+        num_workers=config.num_workers,
+        num_gaussians=config.num_gaussians,
+        hidden_channels=config.hidden_channels,
+        num_filters=config.num_filters,
+        num_interactions=config.num_interactions,
+        dropout=config.dropout,
+        regress_forces=config.regress_forces
+    )
     
     
     

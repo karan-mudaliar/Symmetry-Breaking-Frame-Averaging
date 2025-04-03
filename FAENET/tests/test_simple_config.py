@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Test script for SimpleConfig functionality.
+Test script for Config functionality.
 """
 import os
 import sys
@@ -10,14 +10,14 @@ from pathlib import Path
 # Add the parent directory to sys.path to allow importing the faenet module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from faenet.config import SimpleConfig, Config, ModelConfig, TrainingConfig, DataConfig
+from faenet.config import Config, SimpleConfig
 
-class TestSimpleConfig(unittest.TestCase):
-    """Tests for SimpleConfig functionality"""
+class TestConfig(unittest.TestCase):
+    """Tests for Config functionality"""
     
-    def test_simple_config_creation(self):
-        """Test creating a SimpleConfig with default values"""
-        config = SimpleConfig()
+    def test_config_creation(self):
+        """Test creating a Config with default values"""
+        config = Config()
         
         # Check default values
         self.assertEqual(config.cutoff, 6.0, "Default cutoff should be 6.0")
@@ -25,7 +25,7 @@ class TestSimpleConfig(unittest.TestCase):
         self.assertEqual(config.epochs, 100, "Default epochs should be 100")
         
         # Create with custom values
-        custom_config = SimpleConfig(
+        custom_config = Config(
             cutoff=5.0,
             batch_size=16,
             lr=0.0001,
@@ -38,73 +38,18 @@ class TestSimpleConfig(unittest.TestCase):
         self.assertEqual(custom_config.lr, 0.0001, "Custom lr should be 0.0001")
         self.assertEqual(custom_config.frame_averaging, "2D", "Custom frame_averaging should be 2D")
     
-    def test_config_conversion(self):
-        """Test converting between SimpleConfig and nested Config"""
-        # Create a simple config
-        simple_config = SimpleConfig(
-            cutoff=5.0,
-            max_neighbors=30,
-            hidden_channels=64,
-            output_properties=["WF_top", "WF_bottom"],
-            batch_size=16,
-            epochs=50,
-            lr=0.0005,
-            frame_averaging="3D",
-            data_dir=Path("./test_data"),
-            structure_col="structure"
-        )
+    def test_backward_compatibility(self):
+        """Test backward compatibility with SimpleConfig alias"""
+        # Ensure SimpleConfig is an alias of Config
+        config = Config(cutoff=5.0, batch_size=16)
+        simple_config = SimpleConfig(cutoff=5.0, batch_size=16)
         
-        # Convert to nested config
-        nested_config = simple_config.to_nested_config()
+        # Both should have the same attributes and values
+        self.assertEqual(config.cutoff, simple_config.cutoff)
+        self.assertEqual(config.batch_size, simple_config.batch_size)
         
-        # Check conversion
-        self.assertEqual(simple_config.cutoff, nested_config.model.cutoff, "cutoff conversion failed")
-        self.assertEqual(simple_config.max_neighbors, nested_config.model.max_neighbors, "max_neighbors conversion failed")
-        self.assertEqual(simple_config.hidden_channels, nested_config.model.hidden_channels, "hidden_channels conversion failed")
-        self.assertEqual(simple_config.output_properties, nested_config.model.output_properties, "output_properties conversion failed")
-        self.assertEqual(simple_config.batch_size, nested_config.training.batch_size, "batch_size conversion failed")
-        self.assertEqual(simple_config.epochs, nested_config.training.epochs, "epochs conversion failed")
-        self.assertEqual(simple_config.lr, nested_config.training.lr, "lr conversion failed")
-        self.assertEqual(simple_config.frame_averaging, nested_config.training.frame_averaging, "frame_averaging conversion failed")
-        self.assertEqual(simple_config.data_dir, nested_config.data.data_dir, "data_dir conversion failed")
-        self.assertEqual(simple_config.structure_col, nested_config.data.structure_col, "structure_col conversion failed")
-    
-    def test_nested_to_simple(self):
-        """Test converting from nested Config to SimpleConfig"""
-        # Create a nested config
-        nested_config = Config(
-            model=ModelConfig(
-                cutoff=5.0,
-                max_neighbors=30,
-                hidden_channels=64,
-                output_properties=["WF_top"]
-            ),
-            training=TrainingConfig(
-                batch_size=16,
-                epochs=50,
-                lr=0.0005,
-                frame_averaging="3D"
-            ),
-            data=DataConfig(
-                data_dir=Path("./test_data"),
-                structure_col="structure"
-            )
-        )
-        
-        # Convert to simple config
-        simple_config = SimpleConfig.from_nested_config(nested_config)
-        
-        # Check conversion
-        self.assertEqual(nested_config.model.cutoff, simple_config.cutoff, "cutoff conversion failed")
-        self.assertEqual(nested_config.model.max_neighbors, simple_config.max_neighbors, "max_neighbors conversion failed")
-        self.assertEqual(nested_config.model.hidden_channels, simple_config.hidden_channels, "hidden_channels conversion failed")
-        self.assertEqual(nested_config.model.output_properties, simple_config.output_properties, "output_properties conversion failed")
-        self.assertEqual(nested_config.training.batch_size, simple_config.batch_size, "batch_size conversion failed")
-        self.assertEqual(nested_config.training.epochs, simple_config.epochs, "epochs conversion failed")
-        self.assertEqual(nested_config.training.lr, simple_config.lr, "lr conversion failed")
-        self.assertEqual(nested_config.training.frame_averaging, simple_config.frame_averaging, "frame_averaging conversion failed")
-        self.assertEqual(nested_config.data.data_dir, simple_config.data_dir, "data_dir conversion failed")
-        self.assertEqual(nested_config.data.structure_col, simple_config.structure_col, "structure_col conversion failed")
+        # SimpleConfig should be a subclass of Config
+        self.assertTrue(isinstance(simple_config, Config))
 
 
 if __name__ == "__main__":

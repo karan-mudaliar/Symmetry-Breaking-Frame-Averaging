@@ -1,58 +1,100 @@
-# Symmetry-Breaking Frame Averaging
+# FAENet: Frame Averaging Equivariant Network
 
-## Overview
+A rotation-invariant graph neural network implementation that uses frame averaging for crystal property prediction.
 
-This repository contains code for the paper [Symmetry-Breaking Frame Averaging: A Simple Way to Enhance the Performance of Equivariant Networks](https://arxiv.org/abs/2306.15145).
+## Setup
 
-![Pipeline](FAENET/assets/pipeline.png)
+### Environment Setup
 
-The original implementation was complex and integrated with the OCP (Open Catalyst Project) codebase. A simplified and more accessible implementation has been created in the [FAENET](./FAENET) directory.
+```bash
+# Create a new conda environment
+conda create -n faenet python=3.10
+conda activate faenet
 
-## Simplified Implementation
+# Install PyTorch (adjust CUDA version if needed)
+conda install pytorch pytorch-cuda=11.8 -c pytorch -c nvidia
 
-We've created a streamlined version of FAENet with frame averaging in the [FAENET](./FAENET) directory. This implementation:
+# Install PyTorch Geometric
+conda install pyg -c pyg
 
-- Provides a clean, modular codebase with clear separation of components
-- Uses modern Python practices with type-safe configuration using pydantic and tyro
-- Offers enhanced graph construction for crystal structures
-- Supports both 3D and 2D frame averaging approaches
-- Focuses on multi-property prediction
-- Integrates seamlessly with PyTorch Geometric
-
-**→ Please see the [FAENET](./FAENET) directory for the simplified implementation.**
-
-## Key Components
-
-The simplified implementation includes:
-
-1. **Frame Averaging**: Break rotational symmetry with PCA-based frame transforms
-   - Support for 3D (all directions) and 2D (preserving z-coordinate) transformations
-   - Multiple frame methods: "all" (uses all 8 frames), "det" (deterministic frame), "random" (random frame)
-
-2. **Graph Construction**: Enhanced handling of crystal structures
-   - Proper periodic boundary condition (PBC) handling
-   - Radius-based neighbor finding with cell offsets
-
-3. **Model Architecture**: Simplified FAENet implementation
-   - Embedding block: Convert atom types to embeddings
-   - Interaction blocks: Message passing between atoms
-   - Output blocks: Property prediction from atom representations
-
-4. **Dataset Handling**: Flexible and efficient data loading
-   - Support for both file-based and CSV-based loading
-   - Integrated frame averaging during data loading
-
-## Citation
-
-```
-@article{duval2023symmetry,
-  title={Symmetry-Breaking Frame Averaging: A Simple Way to Enhance the Performance of Equivariant Networks},
-  author={Duval, Alexandre and Levie, Ron and Bronstein, Michael and Bruna, Joan},
-  journal={arXiv preprint arXiv:2306.15145},
-  year={2023}
-}
+# Install other dependencies
+pip install tyro pydantic pymatgen ase tqdm matplotlib jupyter
 ```
 
-## License
+### Additional Dependencies
 
-This project is licensed under the MIT License - see the LICENSE.md file for details.
+The code relies on the following packages:
+- PyTorch
+- PyTorch Geometric
+- PyMatGen (for crystal structure handling)
+- Tyro & Pydantic (for configuration)
+- NumPy, Matplotlib, ASE, tqdm
+
+## Basic Usage
+
+```python
+from faenet.train import train_faenet
+
+# Train a model with simplified interface
+model, test_loader = train_faenet(
+    data_path="path/to/data.csv",       # CSV file with structure data
+    structure_col="atoms",              # Column containing structure dictionaries
+    target_properties=["energy", "gap"], # Properties to predict
+    output_dir="output",                # Where to save model and results
+    frame_averaging="3D",               # Use 3D frame averaging (or "2D" or None)
+    cutoff=6.0,                         # Cutoff radius for neighbors
+    max_neighbors=40,                   # Maximum neighbors per atom
+    batch_size=32,                      # Batch size for training
+    epochs=100                          # Number of training epochs
+)
+
+# Alternatively, use the configuration system
+from faenet.faenet import FAENet
+from faenet.config import FAENetConfig
+
+# Initialize model with custom configuration
+config = FAENetConfig()
+config.model.hidden_channels = 128
+model = FAENet(
+    cutoff=config.model.cutoff,
+    hidden_channels=config.model.hidden_channels,
+    output_properties=["energy"]
+)
+```
+
+## Features
+
+- Frame averaging for rotation invariance
+- Proper handling of periodic boundary conditions for crystal structures
+- Support for multiple property prediction
+- Type-safe configuration system
+
+## Command Line Usage
+
+You can also run training directly from the command line:
+
+```bash
+# Train with default configuration
+python -m faenet.train
+
+# Train with custom parameters
+python -m faenet.train --data.data_dir=data/my_structures.csv --data.structure_col=atoms --training.epochs=200 --model.hidden_channels=128
+```
+
+## Example Script
+
+Create a simple script to train a model:
+
+```python
+# train_example.py
+from faenet.train import train_faenet
+
+if __name__ == "__main__":
+    train_faenet(
+        data_path="data/structures.csv",
+        structure_col="atoms",
+        target_properties=["formation_energy", "band_gap"],
+        frame_averaging="3D",
+        output_dir="results/my_model"
+    )
+```
