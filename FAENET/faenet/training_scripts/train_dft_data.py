@@ -68,7 +68,7 @@ def main():
     )
     
     # Run training directly with config 
-    # (we can now use model_dump() without field mapping)
+    logger.info("starting_training")
     model, test_loader = train_faenet(**config.model_dump())
     
     logger.info("training_completed", output_dir=str(config.output_dir))
