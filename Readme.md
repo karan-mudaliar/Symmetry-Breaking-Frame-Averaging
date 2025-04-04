@@ -1,6 +1,6 @@
 # FAENet: Frame Averaging Equivariant Network
 
-FAENet is a graph neural network for crystal property prediction that achieves approximate SO(2)/SO(3) equivariance through frame averaging. It uses a novel approach where multiple reference frames are generated and predictions are averaged, providing equivariance without sacrificing model expressivity.
+FAENet is a graph neural network for crystal property prediction that achieves approximate SO(2)/SO(3) equivariance through frame averaging. It generates multiple reference and predictions from all frames are averaged, resulting in approximate equivariance without baking equivariance into the model itself.
 
 ## Overview
 
