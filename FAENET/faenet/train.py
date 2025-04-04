@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch_geometric.loader import DataLoader
-import argparse
 import numpy as np
 from tqdm import tqdm
 from torch.utils.data import random_split
