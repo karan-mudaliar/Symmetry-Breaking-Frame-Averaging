@@ -616,7 +616,7 @@ def main():
     
     # Train model
     train_faenet(
-        data_path=config.data_dir,
+        data_path=config.data_path,
         structure_col=config.structure_col,
         target_properties=config.target_properties,
         output_dir=config.output_dir,
@@ -626,7 +626,7 @@ def main():
         max_neighbors=config.max_neighbors,
         batch_size=config.batch_size,
         epochs=config.epochs,
-        learning_rate=config.lr,
+        learning_rate=config.learning_rate,
         seed=config.seed,
         device=config.device,
         num_workers=config.num_workers,

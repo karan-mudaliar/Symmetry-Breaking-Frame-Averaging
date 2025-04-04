@@ -5,6 +5,24 @@ def swish(x):
     return x * torch.sigmoid(x)
 
 
+def generate_run_name():
+    """Generate a memorable run name for experiment tracking.
+    
+    Returns:
+        str: A unique, memorable name for the run (e.g., "atomic-elephant")
+    """
+    try:
+        from coolname import generate_slug
+        return generate_slug(2)
+    except ImportError:
+        import random
+        import time
+        # Fallback if coolname is not installed
+        adjectives = ["bold", "calm", "wise", "swift", "keen"]
+        nouns = ["tiger", "eagle", "wolf", "dolphin", "fox"]
+        return f"{random.choice(adjectives)}-{random.choice(nouns)}-{int(time.time()) % 10000}"
+
+
 def get_distances(pos, edge_index):
     """Get distances between atoms based on edge index.
     

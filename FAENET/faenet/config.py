@@ -29,7 +29,7 @@ class Config(BaseModel):
     # Training parameters
     batch_size: int = Field(32, description="Batch size")
     epochs: int = Field(100, description="Number of epochs")
-    lr: float = Field(0.001, description="Learning rate")
+    learning_rate: float = Field(0.001, description="Learning rate")
     weight_decay: float = Field(1e-5, description="Weight decay for optimizer")
     train_ratio: float = Field(0.8, description="Training set ratio")
     val_ratio: float = Field(0.1, description="Validation set ratio")
@@ -47,7 +47,7 @@ class Config(BaseModel):
     early_stopping_patience: int = Field(20, description="Patience for early stopping")
     
     # Data parameters
-    data_dir: Path = Field(Path("./data"), description="Directory with data files or CSV file")
+    data_path: Path = Field(Path("./data"), description="Directory with data files or CSV file")
     structure_col: Optional[str] = Field("slab", 
         description="Column name for structure data in CSV format")
     target_properties: List[str] = Field(["energy"], description="Target properties to predict")
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     
     # Print an example command for running training
     print("\nExample command for training FAENet:")
-    print("python -m faenet.train --data_dir=./test_data/surface_prop_data_set_top_bottom.csv " 
+    print("python -m faenet.train --data_path=./test_data/surface_prop_data_set_top_bottom.csv " 
           "--structure_col=slab --target_properties=[WF_top,WF_bottom,cleavage_energy] "
           "--frame_averaging=3D --fa_method=all "
           "--regress_forces=False --output_dir=./results")
