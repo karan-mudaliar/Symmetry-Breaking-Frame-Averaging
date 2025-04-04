@@ -10,7 +10,7 @@ from torch_geometric.nn import MessagePassing, radius_graph
 from torch_geometric.nn.norm import GraphNorm
 from torch_scatter import scatter
 
-from faenet.utils import swish, GaussianSmearing, ForceDecoder, get_distances, conditional_grad
+from faenet.utils import swish, GaussianSmearing, get_distances, conditional_grad
 
 
 class EmbeddingBlock(nn.Module):
@@ -179,7 +179,6 @@ class FAENet(nn.Module):
         num_interactions (int): Number of interaction blocks
         dropout (float): Dropout rate
         output_properties (list): List of properties to predict
-        regress_forces (bool): Whether to predict forces
     """
 
     def __init__(
@@ -191,7 +190,6 @@ class FAENet(nn.Module):
         num_interactions=4,
         dropout=0.0,
         output_properties=["energy"],
-        regress_forces=False,
     ):
         super().__init__()
         
@@ -201,7 +199,6 @@ class FAENet(nn.Module):
         self.num_interactions = num_interactions
         self.dropout = dropout
         self.output_properties = output_properties
-        self.regress_forces = regress_forces
         self.training = True
         
         # Use swish activation
@@ -239,13 +236,6 @@ class FAENet(nn.Module):
                 hidden_channels,
                 self.act,
                 dropout
-            )
-        
-        # Force decoder
-        if regress_forces:
-            self.force_decoder = ForceDecoder(
-                hidden_channels,
-                hidden_channels
             )
         
     def forward(self, data):
@@ -328,10 +318,6 @@ class FAENet(nn.Module):
         
         for prop in self.output_properties:
             preds[prop] = self.output_blocks[prop](h, batch)
-        
-        # Add forces if requested
-        if self.regress_forces:
-            preds["forces"] = self.forces_forward(preds)
             
         return preds
         
@@ -389,12 +375,6 @@ class FAENet(nn.Module):
             "distance_vec": rel_pos
         }
 
-    @conditional_grad(torch.enable_grad())
-    def forces_forward(self, preds):
-        """Predict forces from atom embeddings"""
-        if hasattr(self, 'force_decoder'):
-            return self.force_decoder(preds["hidden_state"])
-        return None
 
 
 def process_batch_with_frame_averaging(model, batch, fa_method="all"):
@@ -414,10 +394,10 @@ def process_batch_with_frame_averaging(model, batch, fa_method="all"):
     original_pos = batch.pos
     
     # Apply frame averaging
-    fa_pos, _, fa_rot = frame_averaging_3D(batch.pos, None, fa_method)
+    fa_pos, _, _ = frame_averaging_3D(batch.pos, None, fa_method)
     
     # Store predictions for each frame
-    e_all, f_all = [], []
+    prop_predictions = {prop: [] for prop in model.output_properties}
     
     # Process each frame
     for i in range(len(fa_pos)):
@@ -426,29 +406,19 @@ def process_batch_with_frame_averaging(model, batch, fa_method="all"):
         
         # Forward pass
         preds = model(batch)
-        e_all.append(preds["energy"])
         
-        # Transform forces to maintain equivariance
-        if "forces" in preds:
-            fa_rot_expanded = torch.repeat_interleave(
-                fa_rot[i], batch.natoms, dim=0
-            )
-            forces = (
-                preds["forces"]
-                .view(-1, 1, 3)
-                .bmm(fa_rot_expanded.transpose(1, 2).to(preds["forces"].device))
-                .view(-1, 3)
-            )
-            f_all.append(forces)
+        # Collect predictions for each property
+        for prop in model.output_properties:
+            if prop in preds:
+                prop_predictions[prop].append(preds[prop])
     
     # Restore original positions
     batch.pos = original_pos
     
-    # Average predictions
-    preds = {}
-    preds["energy"] = sum(e_all) / len(e_all)
-    
-    if f_all:
-        preds["forces"] = sum(f_all) / len(f_all)
+    # Average predictions for each property
+    final_preds = {}
+    for prop in prop_predictions:
+        if prop_predictions[prop]:
+            final_preds[prop] = sum(prop_predictions[prop]) / len(prop_predictions[prop])
         
-    return preds
+    return final_preds

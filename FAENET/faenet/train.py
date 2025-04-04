@@ -24,11 +24,10 @@ def train(model, train_loader, val_loader, device, config):
         config: Configuration object
     """
     # Get parameters directly from config
-    lr = config.lr
+    lr = config.learning_rate
     epochs = config.epochs
     frame_averaging = config.frame_averaging
     fa_method = config.fa_method
-    force_weight = config.force_weight
     checkpoint_interval = config.checkpoint_interval
     output_dir = config.output_dir
     
@@ -146,11 +145,6 @@ def train(model, train_loader, val_loader, device, config):
                         
                         prop_loss = criterion(model_preds, targets)
                         loss += prop_loss
-                
-                # Add force loss if needed
-                if model.regress_forces and "forces" in preds and hasattr(batch, "forces"):
-                    force_loss = criterion(preds["forces"], batch.forces)
-                    loss += config.force_weight * force_loss
             
             # Backpropagation
             optimizer.zero_grad()
@@ -387,9 +381,6 @@ def run_inference(model, data_loader, device, config, output_file):
                 final_preds = {}
                 for prop in model.output_properties:
                     final_preds[prop] = preds[prop].cpu().numpy()
-                
-                if model.regress_forces and "forces" in preds:
-                    final_preds["forces"] = preds["forces"].cpu().numpy()
             
             # Store predictions for each file
             for i, fname in enumerate(file_names):
@@ -397,15 +388,8 @@ def run_inference(model, data_loader, device, config, output_file):
                 
                 # Add predictions
                 for prop in final_preds:
-                    if prop != "forces":
-                        # For graph-level properties (scalar)
-                        result[prop] = float(final_preds[prop][i][0])
-                    else:
-                        # For force predictions (per atom)
-                        atoms_per_graph = batch.natoms[i].item()
-                        start_idx = sum(batch.natoms[:i].cpu().numpy())
-                        end_idx = start_idx + atoms_per_graph
-                        result[prop] = final_preds[prop][start_idx:end_idx].tolist()
+                    # For graph-level properties (scalar)
+                    result[prop] = float(final_preds[prop][i][0])
                 
                 # Add ground truth if available
                 for prop in model.output_properties:
@@ -422,11 +406,6 @@ def run_inference(model, data_loader, device, config, output_file):
                             # 2-dim or higher tensor
                             result[f"{prop}_true"] = float(target_tensor[i][0].cpu().numpy())
                 
-                if hasattr(batch, "forces"):
-                    atoms_per_graph = batch.natoms[i].item()
-                    start_idx = sum(batch.natoms[:i].cpu().numpy())
-                    end_idx = start_idx + atoms_per_graph
-                    result["forces_true"] = batch.forces[start_idx:end_idx].cpu().numpy().tolist()
                 
                 results.append(result)
     
@@ -502,7 +481,7 @@ def train_faenet(
     config = Config(
         batch_size=batch_size,
         epochs=epochs,
-        lr=learning_rate,
+        learning_rate=learning_rate,
         seed=seed,
         num_workers=num_workers,
         test_ratio=test_ratio,
@@ -510,8 +489,7 @@ def train_faenet(
         frame_averaging=frame_averaging,
         fa_method=fa_method,
         cutoff=cutoff,
-        output_dir=output_dir,
-        regress_forces=False  # Default to no force regression
+        output_dir=output_dir
     )
     
     # Create dataset
@@ -634,8 +612,7 @@ def main():
         hidden_channels=config.hidden_channels,
         num_filters=config.num_filters,
         num_interactions=config.num_interactions,
-        dropout=config.dropout,
-        regress_forces=config.regress_forces
+        dropout=config.dropout
     )
     
     

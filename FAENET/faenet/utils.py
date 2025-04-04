@@ -76,20 +76,3 @@ class GaussianSmearing(torch.nn.Module):
         return torch.exp(self.coeff * torch.pow(dist, 2))
 
 
-class ForceDecoder(torch.nn.Module):
-    """Simple decoder for predicting atomic forces."""
-    
-    def __init__(self, input_channels, hidden_channels=128, act=swish):
-        super().__init__()
-        self.act = act
-        
-        # Simple MLP for force prediction
-        self.lin1 = torch.nn.Linear(input_channels, hidden_channels)
-        self.lin2 = torch.nn.Linear(hidden_channels, hidden_channels)
-        self.lin3 = torch.nn.Linear(hidden_channels, 3)  # 3D forces
-        
-    def forward(self, x):
-        x = self.act(self.lin1(x))
-        x = self.act(self.lin2(x))
-        x = self.lin3(x)
-        return x
