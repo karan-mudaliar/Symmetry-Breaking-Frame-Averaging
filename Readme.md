@@ -1,13 +1,13 @@
 # FAENet: Frame Averaging Equivariant Network
 
-FAENet is a rotation-invariant graph neural network for crystal property prediction. It uses a novel frame averaging technique to achieve rotational invariance without compromising the expressivity of the model.
+FAENet is a graph neural network for crystal property prediction that achieves approximate SO(2)/SO(3) equivariance through frame averaging. It uses a novel approach where multiple reference frames are generated and predictions are averaged, providing equivariance without sacrificing model expressivity.
 
 ## Overview
 
-FAENet implements a rotation-invariant graph neural network architecture that uses frame averaging to predict properties of crystal structures. Key features include:
+FAENet implements a graph neural network architecture with frame averaging to predict properties of crystal structures. The key innovation is using frame averaging to achieve approximate equivariance rather than building equivariance directly into the network architecture. Key features include:
 
-- **Frame averaging techniques** (3D and 2D variants) to break rotational symmetry
-- **Rotation invariant predictions** through PCA-based frame transformations
+- **Frame averaging techniques** (3D and 2D variants) to handle rotational symmetry
+- **Approximate equivariance** through PCA-based frame transformations and prediction averaging
 - **Flexible property prediction** for single or multiple target properties
 - **Support for crystal slabs** with proper periodic boundary conditions
 - **Efficient implementation** using PyTorch and PyG
@@ -16,9 +16,9 @@ FAENet implements a rotation-invariant graph neural network architecture that us
 
 1. **Data Loading**: Crystal structures are loaded from CSV files or structure files
 2. **Graph Construction**: Structures are converted to graphs with proper periodic boundary conditions
-3. **Frame Averaging**: Multiple frames are generated to achieve rotation invariance
+3. **Frame Averaging**: Multiple reference frames are generated using PCA-based transformations
 4. **Graph Neural Network**: Each frame is processed independently by the GNN
-5. **Property Prediction**: Model outputs are averaged across frames for final predictions
+5. **Property Prediction**: Model outputs are averaged across frames to achieve approximate equivariance
 
 ![Pipeline Overview](FAENET/assets/pipeline.png)
 
