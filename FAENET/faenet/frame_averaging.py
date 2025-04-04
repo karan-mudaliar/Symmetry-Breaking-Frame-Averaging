@@ -1,8 +1,12 @@
 import random
 from copy import deepcopy
 from itertools import product
+import structlog
 
 import torch
+
+# Configure structlog
+logger = structlog.get_logger()
 
 
 def compute_frames(eigenvec, pos, cell, fa_method="random", pos_3D=None, det_index=0):
@@ -99,18 +103,19 @@ def check_constraints(eigenval, eigenvec, dim=3):
     # Check eigenvalues are different
     if dim == 3:
         if (eigenval[1] / eigenval[0] > 0.90) or (eigenval[2] / eigenval[1] > 0.90):
-            print("Eigenvalues are quite similar")
+            logger.warn("similar_eigenvalues", dimension=dim, eigenvalues=eigenval.tolist())
     else:
         if eigenval[1] / eigenval[0] > 0.90:
-            print("Eigenvalues are quite similar")
+            logger.warn("similar_eigenvalues", dimension=dim, eigenvalues=eigenval.tolist())
 
     # Check eigenvectors are orthonormal
     if not torch.allclose(eigenvec @ eigenvec.T, torch.eye(dim), atol=1e-03):
-        print("Matrix not orthogonal")
+        logger.warn("non_orthogonal_matrix", dimension=dim)
 
     # Check determinant of eigenvectors is 1
+    det = torch.linalg.det(eigenvec).item()
     if not torch.allclose(torch.linalg.det(eigenvec), torch.tensor(1.0), atol=1e-03):
-        print("Determinant is not 1")
+        logger.warn("determinant_not_one", determinant=det)
 
 
 def frame_averaging_3D(pos, cell=None, fa_method="random", check=False):

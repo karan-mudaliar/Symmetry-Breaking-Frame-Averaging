@@ -1,4 +1,8 @@
 import torch
+import structlog
+
+# Initialize a default logger
+logger = structlog.get_logger()
 
 def swish(x):
     """Swish activation function: x * sigmoid(x)"""

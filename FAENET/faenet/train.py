@@ -6,6 +6,10 @@ from torch_geometric.loader import DataLoader
 import numpy as np
 from tqdm import tqdm
 from torch.utils.data import random_split
+import structlog
+
+# Configure structlog
+logger = structlog.get_logger()
 
 from faenet.dataset import EnhancedSlabDataset, apply_frame_averaging_to_batch
 from faenet.faenet import FAENet
@@ -260,14 +264,17 @@ def train(model, train_loader, val_loader, device, config):
         # Update learning rate
         scheduler.step(val_loss)
         
-        # Print results
-        print(f"Epoch {epoch+1}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
+        # Log results
+        logger.info("epoch_complete", 
+                   epoch=epoch+1, 
+                   train_loss=train_loss, 
+                   val_loss=val_loss)
         
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), os.path.join(output_dir, "best_model.pt"))
-            print(f"Saved new best model with validation loss: {best_val_loss:.6f}")
+            logger.info("best_model_saved", val_loss=best_val_loss)
         
         # Save checkpoint
         if (epoch + 1) % checkpoint_interval == 0:
@@ -413,7 +420,7 @@ def run_inference(model, data_loader, device, config, output_file):
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=2)
     
-    print(f"Saved inference results for {len(results)} structures to {output_file}")
+    logger.info("inference_results_saved", count=len(results), output_file=output_file)
 
 
 def train_faenet(
@@ -492,7 +499,7 @@ def train_faenet(
     )
     
     # Create dataset
-    print(f"Loading data from {data_path}")
+    logger.info("loading_dataset", data_path=str(data_path))
     dataset = EnhancedSlabDataset(
         data_source=data_path,
         structure_col=structure_col,
@@ -551,21 +558,24 @@ def train_faenet(
         **model_kwargs
     ).to(device)
     
-    # Print model summary
+    # Log model summary
     num_params = sum(p.numel() for p in model.parameters())
-    print(f"Model initialized with {num_params:,} parameters")
-    print(f"Using device: {device}")
-    print(f"Training on {train_size} samples, validating on {val_size} samples, testing on {test_size} samples")
+    logger.info("model_initialized", 
+               parameters=num_params, 
+               device=str(device),
+               train_size=train_size,
+               val_size=val_size,
+               test_size=test_size)
     
     # Train model
     train(model, train_loader, val_loader, device, config)
-    print("Training complete!")
+    logger.info("training_complete")
     
     # Load best model
     best_model_path = os.path.join(output_dir, "best_model.pt")
     if os.path.exists(best_model_path):
         model.load_state_dict(torch.load(best_model_path, map_location=device))
-        print(f"Loaded best model from {best_model_path}")
+        logger.info("best_model_loaded", path=best_model_path)
     
     # Run inference on test set
     inference_output = os.path.join(output_dir, "predictions.json")

@@ -6,23 +6,17 @@ Handles multiple surface property predictions with frame averaging.
 import os
 import sys
 from pathlib import Path
-import structlog
-
-# Configure structlog
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
-        structlog.dev.ConsoleRenderer()
-    ]
-)
-logger = structlog.get_logger()
 
 # Ensure the parent package is in the path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+import structlog
+from faenet.utils import generate_run_name
 from faenet.train import train_faenet
 from faenet.config import get_config
-from faenet.utils import generate_run_name
+
+# Initialize logger
+logger = structlog.get_logger()
 
 def main():
     """
@@ -73,10 +67,12 @@ def main():
     
     logger.info("training_completed", output_dir=str(config.output_dir))
     
-    print(f"\n{'='*80}")
-    print(f"Training completed successfully!")
-    print(f"Output directory: {config.output_dir}")
-    print(f"{'='*80}\n")
+    # Log completion with clear formatting for CLI visibility
+    sep_line = "="*80
+    logger.info("training_summary",
+                separator=sep_line,
+                status="Training completed successfully!",
+                output_dir=str(config.output_dir))
 
 
 if __name__ == "__main__":

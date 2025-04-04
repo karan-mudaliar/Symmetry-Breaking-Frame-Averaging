@@ -4,9 +4,13 @@ Integrates frame averaging and enhanced graph construction options.
 """
 from pathlib import Path
 from typing import List, Optional, Union, Literal, Dict, Any
+import structlog
 
 import tyro
 from pydantic import BaseModel, Field
+
+# Configure structlog
+logger = structlog.get_logger()
 
 
 class Config(BaseModel):
@@ -75,11 +79,10 @@ if __name__ == "__main__":
     # Example usage (this will capture command line arguments)
     config = get_config()
     
-    # Print an example command for running training
-    print("\nExample command for training FAENet:")
-    print("python -m faenet.train --data_path=./test_data/surface_prop_data_set_top_bottom.csv " 
-          "--structure_col=slab --target_properties=[WF_top,WF_bottom,cleavage_energy] "
-          "--frame_averaging=3D --fa_method=all --output_dir=./results")
+    # Log an example command for running training
+    logger.info("example_command", 
+               message="Example command for training FAENet:",
+               command="python -m faenet.train --data_path=./test_data/surface_prop_data_set_top_bottom.csv --structure_col=slab --target_properties=[WF_top,WF_bottom,cleavage_energy] --frame_averaging=3D --fa_method=all --output_dir=./results")
     
     # When imported in train.py, you would use:
     # from config import get_config

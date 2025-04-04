@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 from typing import List, Optional, Union, Dict, Tuple
 from tqdm import tqdm
+import structlog
 
 import torch
 from torch.utils.data import Dataset
@@ -18,6 +19,9 @@ import torch_geometric.transforms as T
 from pymatgen.core import Structure
 from faenet.frame_averaging import frame_averaging_3D, frame_averaging_2D
 from faenet.graph_construction import structure_dict_to_graph, structure_to_graph
+
+# Configure structlog
+logger = structlog.get_logger()
 
 class EnhancedSlabDataset(Dataset):
     """
@@ -85,7 +89,10 @@ class EnhancedSlabDataset(Dataset):
                             self.target_properties[prop_name] = values
                             
                             if len(values) != len(self.file_list):
-                                print(f"Warning: {prop_name} has {len(values)} values but there are {len(self.file_list)} structures")
+                                logger.warn("property_length_mismatch", 
+                                           property=prop_name, 
+                                           property_count=len(values), 
+                                           structure_count=len(self.file_list))
         else:
             # Assume CSV format
             self.source_type = "csv"
@@ -117,7 +124,7 @@ class EnhancedSlabDataset(Dataset):
             structure = Structure.from_file(file_path)
             return structure_to_graph(structure, self.cutoff, self.max_neighbors, self.pbc)
         except Exception as e:
-            print(f"Error processing {file_path}: {e}")
+            logger.error("structure_processing_error", file_path=file_path, error=str(e))
             return None
     
     def _process_structure_dict(self, structure_dict):
@@ -125,7 +132,7 @@ class EnhancedSlabDataset(Dataset):
         try:
             return structure_dict_to_graph(structure_dict, self.cutoff, self.max_neighbors, self.pbc)
         except Exception as e:
-            print(f"Error processing structure: {e}")
+            logger.error("structure_dict_processing_error", error=str(e))
             return None
     
     def __len__(self):
