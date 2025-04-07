@@ -77,6 +77,7 @@ class TestTraining(unittest.TestCase):
             use_mlflow=True,
             mlflow_experiment_name="FAENet_Test_Run",
             run_name="test-mlflow-integration",
+            end_mlflow_run=False,  # Don't end the run automatically so we can verify it exists
             
             # Other settings
             output_dir=self.output_dir,
@@ -108,6 +109,9 @@ class TestTraining(unittest.TestCase):
             self.assertIn("test_loss", latest_run, "Run should log test_loss")
             
             print("✅ MLflow integration test passed!")
+            
+            # End the active run manually now that we've verified it
+            mlflow.end_run()
             
         except Exception as e:
             self.fail(f"MLflow integration test failed with error: {e}")

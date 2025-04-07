@@ -66,6 +66,7 @@ class Config(BaseModel):
     use_mlflow: bool = Field(True, description="Whether to use MLflow for experiment tracking")
     mlflow_experiment_name: str = Field("FAENet_Training", description="MLflow experiment name")
     run_name: Optional[str] = Field(None, description="Run name for tracking (auto-generated if None)")
+    end_mlflow_run: bool = Field(True, description="Whether to end the MLflow run after training")
 
 
 # For backward compatibility with very old code
