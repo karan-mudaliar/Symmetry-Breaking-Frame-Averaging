@@ -142,7 +142,7 @@ class TestTraining(unittest.TestCase):
             num_workers=0,  # Use 0 for testing
             
             # Data parameters
-            data_dir=TEST_DATA_PATH,
+            data_path=TEST_DATA_PATH,
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"],
             pbc=True,
@@ -155,7 +155,7 @@ class TestTraining(unittest.TestCase):
         # Run training
         try:
             model, test_loader = train_faenet(
-                data_path=config.data_dir,
+                data_path=config.data_path,
                 structure_col=config.structure_col,
                 target_properties=config.target_properties,
                 output_dir=config.output_dir,

@@ -526,7 +526,7 @@ def train_faenet(
     
     # Create dataset
     logger.info("loading_dataset", data_path=str(data_path))
-    dataset = EnhancedSlabDataset(
+    dataset = SlabDataset(
         data_source=data_path,
         structure_col=structure_col,
         target_props=target_properties,

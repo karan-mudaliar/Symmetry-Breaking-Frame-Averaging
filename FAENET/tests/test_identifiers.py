@@ -16,7 +16,7 @@ from faenet.dataset import SlabDataset
 logger = structlog.get_logger()
 
 def test_identifiers():
-    """Test unique identifier creation in EnhancedSlabDataset."""
+    """Test unique identifier creation in SlabDataset."""
     # Path to augmented data (adjust as needed)
     data_path = os.path.abspath(os.path.join(
         os.path.dirname(os.path.abspath(__file__)), 
