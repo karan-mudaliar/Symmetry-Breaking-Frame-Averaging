@@ -88,8 +88,13 @@ class TestTraining(unittest.TestCase):
         initial_runs = len([run for run in mlflow.search_runs()])
         
         try:
-            # Run training with MLflow enabled
-            model, _ = train_faenet(**config.model_dump())
+            # Run training with MLflow enabled, exclude output_properties from kwargs
+            kwargs = config.model_dump()
+            target_props = kwargs.pop('target_properties')
+            model, _ = train_faenet(
+                target_properties=target_props,
+                **kwargs
+            )
             
             # Check that a new run was created
             final_runs = len([run for run in mlflow.search_runs()])

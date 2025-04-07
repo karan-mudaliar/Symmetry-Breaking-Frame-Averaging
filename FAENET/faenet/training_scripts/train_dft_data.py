@@ -30,12 +30,13 @@ def main():
         config.data_path = Path("/home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/data/DFT_data.csv")
         logger.info("using_default_data_path", path=str(config.data_path))
     
-    # Set default output directory and run name if not specified
+    # Generate a unique run name if not already set
+    if config.run_name is None:
+        config.run_name = generate_run_name()
+        logger.info("generated_run_name", run_name=config.run_name)
+    
+    # Set default output directory if not specified
     if str(config.output_dir) == "./outputs":
-        # Generate a unique run name if not already set
-        if config.run_name is None:
-            config.run_name = generate_run_name()
-        
         # Use the run name for the output directory
         config.output_dir = Path(f"/home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/outputs/faenet_dft/{config.run_name}")
         logger.info("using_default_output_dir", path=str(config.output_dir), run_name=config.run_name)

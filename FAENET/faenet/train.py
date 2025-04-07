@@ -509,6 +509,16 @@ def train_faenet(
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
+    # Get MLflow parameters from model_kwargs
+    use_mlflow = model_kwargs.pop('use_mlflow', True)
+    mlflow_experiment_name = model_kwargs.pop('mlflow_experiment_name', 'FAENet_Training')
+    run_name = model_kwargs.pop('run_name', None)
+    
+    # Generate a memorable run name if not provided
+    if run_name is None:
+        run_name = generate_run_name()
+        logger.info("generated_run_name", run_name=run_name)
+    
     # Create config object
     config = Config(
         batch_size=batch_size,
@@ -521,7 +531,10 @@ def train_faenet(
         frame_averaging=frame_averaging,
         fa_method=fa_method,
         cutoff=cutoff,
-        output_dir=output_dir
+        output_dir=output_dir,
+        use_mlflow=use_mlflow,
+        mlflow_experiment_name=mlflow_experiment_name,
+        run_name=run_name
     )
     
     # Create dataset
@@ -577,12 +590,19 @@ def train_faenet(
     else:
         output_properties = ["energy"]
     
-    # Initialize model
-    model = FAENet(
-        cutoff=cutoff,
-        output_properties=output_properties,
-        **model_kwargs
-    ).to(device)
+    # Initialize model - handle case where output_properties is in model_kwargs
+    if 'output_properties' in model_kwargs:
+        logger.info("using_output_properties_from_kwargs", properties=model_kwargs['output_properties'])
+        model = FAENet(
+            cutoff=cutoff,
+            **model_kwargs
+        ).to(device)
+    else:
+        model = FAENet(
+            cutoff=cutoff,
+            output_properties=output_properties,
+            **model_kwargs
+        ).to(device)
     
     # Log model summary
     num_params = sum(p.numel() for p in model.parameters())
@@ -597,10 +617,7 @@ def train_faenet(
     if config.use_mlflow:
         mlflow.set_experiment(config.mlflow_experiment_name)
         
-        # Generate run name if not provided
-        if config.run_name is None:
-            config.run_name = generate_run_name()
-            logger.info("generated_mlflow_run_name", run_name=config.run_name)
+        # Run name should be already set at this point
         
         # Start MLflow run
         with mlflow.start_run(run_name=config.run_name):
