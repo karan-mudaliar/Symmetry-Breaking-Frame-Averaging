@@ -66,6 +66,7 @@ class TestTraining(unittest.TestCase):
             batch_size=4,
             epochs=1,  # Minimum to test logging
             learning_rate=0.001,
+            weight_decay=1e-5,
             
             # Data parameters
             data_path=TEST_DATA_PATH,

@@ -36,8 +36,8 @@ def train(model, train_loader, val_loader, device, config):
     checkpoint_interval = config.checkpoint_interval
     output_dir = config.output_dir
     
-    # Optimizer
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    # Optimizer (use weight_decay if specified)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=config.weight_decay if hasattr(config, 'weight_decay') else 0.0)
     
     # Loss function
     criterion = nn.MSELoss()
@@ -509,10 +509,33 @@ def train_faenet(
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
-    # Get MLflow parameters from model_kwargs
-    use_mlflow = model_kwargs.pop('use_mlflow', True)
-    mlflow_experiment_name = model_kwargs.pop('mlflow_experiment_name', 'FAENet_Training')
-    run_name = model_kwargs.pop('run_name', None)
+    # Create a clean dictionary of ONLY model parameters
+    # List of valid FAENet model parameters
+    faenet_params = [
+        'cutoff',
+        'num_gaussians',
+        'hidden_channels',
+        'num_filters', 
+        'num_interactions',
+        'dropout',
+        'output_properties'
+    ]
+    
+    # Create a dictionary with ONLY the allowed model parameters
+    model_args = {k: model_kwargs[k] for k in faenet_params if k in model_kwargs}
+    model_args['cutoff'] = cutoff  # Always include cutoff
+    
+    # Extract other parameters by category
+    # MLflow parameters
+    use_mlflow = model_kwargs.get('use_mlflow', True)
+    mlflow_experiment_name = model_kwargs.get('mlflow_experiment_name', 'FAENet_Training')
+    run_name = model_kwargs.get('run_name', None)
+    
+    # Optimizer parameters
+    weight_decay = model_kwargs.get('weight_decay', 1e-5)
+    
+    # Other parameters we don't need to extract explicitly
+    # (checkpoint_interval, eval_interval, etc. will be in the Config object)
     
     # Generate a memorable run name if not provided
     if run_name is None:
@@ -524,6 +547,7 @@ def train_faenet(
         batch_size=batch_size,
         epochs=epochs,
         learning_rate=learning_rate,
+        weight_decay=weight_decay,
         seed=seed,
         num_workers=num_workers,
         test_ratio=test_ratio,
@@ -590,19 +614,20 @@ def train_faenet(
     else:
         output_properties = ["energy"]
     
-    # Initialize model - handle case where output_properties is in model_kwargs
-    if 'output_properties' in model_kwargs:
-        logger.info("using_output_properties_from_kwargs", properties=model_kwargs['output_properties'])
-        model = FAENet(
-            cutoff=cutoff,
-            **model_kwargs
-        ).to(device)
-    else:
-        model = FAENet(
-            cutoff=cutoff,
-            output_properties=output_properties,
-            **model_kwargs
-        ).to(device)
+    # Initialize model with clean model_args
+    # If output_properties isn't in model_args, add it from the local variable
+    if 'output_properties' not in model_args:
+        model_args['output_properties'] = output_properties
+    
+    # Log the model parameters being used
+    logger.info("initializing_model", 
+               num_gaussians=model_args.get('num_gaussians', 50),
+               hidden_channels=model_args.get('hidden_channels', 128),
+               num_filters=model_args.get('num_filters', 128),
+               num_interactions=model_args.get('num_interactions', 4),
+               output_properties=model_args['output_properties'])
+    
+    model = FAENet(**model_args).to(device)
     
     # Log model summary
     num_params = sum(p.numel() for p in model.parameters())
