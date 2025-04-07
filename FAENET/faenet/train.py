@@ -7,13 +7,15 @@ import numpy as np
 from tqdm import tqdm
 from torch.utils.data import random_split
 import structlog
+import mlflow
 
 # Configure structlog
 logger = structlog.get_logger()
 
-from faenet.dataset import EnhancedSlabDataset, apply_frame_averaging_to_batch
+from faenet.dataset import SlabDataset, apply_frame_averaging_to_batch
 from faenet.faenet import FAENet
 from faenet.config import get_config, Config
+from faenet.utils import generate_run_name
 
 
 def train(model, train_loader, val_loader, device, config):
@@ -270,11 +272,25 @@ def train(model, train_loader, val_loader, device, config):
                    train_loss=train_loss, 
                    val_loss=val_loss)
         
+        # Log to MLflow if enabled
+        if hasattr(config, 'use_mlflow') and config.use_mlflow:
+            mlflow.log_metric("train_loss", train_loss, step=epoch)
+            mlflow.log_metric("val_loss", val_loss, step=epoch)
+            
+            # Log learning rate
+            current_lr = optimizer.param_groups[0]['lr']
+            mlflow.log_metric("learning_rate", current_lr, step=epoch)
+        
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), os.path.join(output_dir, "best_model.pt"))
+            model_path = os.path.join(output_dir, "best_model.pt")
+            torch.save(model.state_dict(), model_path)
             logger.info("best_model_saved", val_loss=best_val_loss)
+            
+            # Log best model to MLflow
+            if hasattr(config, 'use_mlflow') and config.use_mlflow:
+                mlflow.log_artifact(model_path)
         
         # Save checkpoint
         if (epoch + 1) % checkpoint_interval == 0:
@@ -315,13 +331,15 @@ def run_inference(model, data_loader, device, config, output_file):
         for batch_idx, batch in enumerate(tqdm(data_loader, desc="Running inference")):
             batch = batch.to(device)
             
-            # Get original file identifiers
+            # Get unique identifiers for each structure in batch
             batch_size = config.batch_size
             file_indices = data_loader.dataset.indices[batch_idx * batch_size:
                                                      min((batch_idx + 1) * batch_size, 
                                                          len(data_loader.dataset))]
             
-            file_names = [data_loader.dataset.dataset.file_list[idx] for idx in file_indices]
+            # These are the unique identifiers (mpid_miller_term_flipped or index-based)
+            unique_identifiers = [data_loader.dataset.dataset.file_list[idx] for idx in file_indices]
+            logger.debug("batch_identifiers", batch_idx=batch_idx, identifiers=unique_identifiers)
             
             # Apply frame averaging if requested
             frame_averaging = config.frame_averaging
@@ -389,8 +407,8 @@ def run_inference(model, data_loader, device, config, output_file):
                     final_preds[prop] = preds[prop].cpu().numpy()
             
             # Store predictions for each file
-            for i, fname in enumerate(file_names):
-                result = {"file_name": fname}
+            for i, identifier in enumerate(unique_identifiers):
+                result = {"jid": identifier}
                 
                 # Add predictions
                 for prop in final_preds:
@@ -420,7 +438,15 @@ def run_inference(model, data_loader, device, config, output_file):
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=2)
     
-    logger.info("inference_results_saved", count=len(results), output_file=output_file)
+    # Log info about the identifiers used
+    id_type = "unique" if any(['_' in str(r['jid']) for r in results[:5]]) else "index-based"
+    has_flipped = any(['flipped' in str(r['jid']) for r in results])
+    
+    logger.info("inference_results_saved", 
+               count=len(results), 
+               output_file=output_file,
+               identifier_type=id_type,
+               includes_flipped_status=has_flipped)
 
 
 def train_faenet(
@@ -567,8 +593,142 @@ def train_faenet(
                val_size=val_size,
                test_size=test_size)
     
-    # Train model
-    train(model, train_loader, val_loader, device, config)
+    # MLflow setup
+    if config.use_mlflow:
+        mlflow.set_experiment(config.mlflow_experiment_name)
+        
+        # Generate run name if not provided
+        if config.run_name is None:
+            config.run_name = generate_run_name()
+            logger.info("generated_mlflow_run_name", run_name=config.run_name)
+        
+        # Start MLflow run
+        with mlflow.start_run(run_name=config.run_name):
+            # Log all configuration parameters
+            for key, value in config.model_dump().items():
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    mlflow.log_param(key, value)
+                elif isinstance(value, (list, tuple)) and all(isinstance(x, (str, int, float, bool)) for x in value):
+                    mlflow.log_param(key, str(value))
+            
+            # Log system info
+            mlflow.log_param("num_params", num_params)
+            mlflow.log_param("train_size", train_size)
+            mlflow.log_param("val_size", val_size)
+            mlflow.log_param("test_size", test_size)
+            
+            # Train model
+            train(model, train_loader, val_loader, device, config)
+            
+            # Evaluate on test set after training
+            model.eval()
+            test_loss = 0
+            criterion = nn.MSELoss()
+            
+            with torch.no_grad():
+                for batch in tqdm(test_loader, desc="Evaluating test set"):
+                    batch = batch.to(device)
+                    
+                    # Apply frame averaging if enabled
+                    if config.frame_averaging:
+                        batch = apply_frame_averaging_to_batch(batch, config.fa_method, config.frame_averaging)
+                        
+                        # Process all frames at once (using the same code pattern as in train function)
+                        from torch_geometric.data import Batch
+                        
+                        # Save original positions and cell
+                        original_pos = batch.pos.clone()
+                        original_cell = batch.cell.clone() if hasattr(batch, 'cell') and isinstance(batch.cell, torch.Tensor) else batch.cell
+                        
+                        # Create a list of batches, one for each frame
+                        all_batches = []
+                        for i in range(len(batch.fa_pos)):
+                            frame_batch = batch.clone()
+                            frame_batch.pos = batch.fa_pos[i]
+                            if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
+                                frame_batch.cell = batch.fa_cell[i]
+                            all_batches.append(frame_batch)
+                        
+                        # Create a single large batch with all frames
+                        combined_batch = Batch.from_data_list(all_batches)
+                        
+                        # Forward pass with all frames at once
+                        all_preds = model(combined_batch)
+                        
+                        # Split predictions by property and average them
+                        e_all = [[] for _ in model.output_properties]
+                        
+                        # Split predictions by frame
+                        batch_size = batch.num_graphs
+                        num_frames = len(batch.fa_pos)
+                        
+                        for prop_idx, prop in enumerate(model.output_properties):
+                            prop_preds = all_preds[prop]
+                            
+                            for i in range(num_frames):
+                                start_idx = i * batch_size
+                                end_idx = (i + 1) * batch_size
+                                e_all[prop_idx].append(prop_preds[start_idx:end_idx])
+                        
+                        # Restore original positions and cell
+                        batch.pos = original_pos
+                        if hasattr(batch, 'cell') and batch.cell is not None:
+                            batch.cell = original_cell
+                        
+                        # Calculate test loss
+                        batch_loss = 0
+                        for prop_idx, prop in enumerate(model.output_properties):
+                            if hasattr(batch, prop):
+                                # Average predictions across frames
+                                avg_pred = sum(e_all[prop_idx]) / len(e_all[prop_idx])
+                                targets = getattr(batch, prop)
+                                
+                                # Ensure tensors have compatible shapes
+                                if avg_pred.dim() != targets.dim():
+                                    if avg_pred.dim() > targets.dim():
+                                        avg_pred = avg_pred.squeeze()
+                                    else:
+                                        targets = targets.unsqueeze(-1)
+                                
+                                prop_test_loss = criterion(avg_pred, targets)
+                                batch_loss += prop_test_loss
+                    else:
+                        # Standard forward pass
+                        preds = model(batch)
+                        
+                        # Calculate loss
+                        batch_loss = 0
+                        for prop in model.output_properties:
+                            if hasattr(batch, prop):
+                                model_preds = preds[prop]
+                                targets = getattr(batch, prop)
+                                
+                                # Make sure both are the same shape
+                                if model_preds.dim() != targets.dim():
+                                    if model_preds.dim() > targets.dim():
+                                        model_preds = model_preds.squeeze()
+                                    else:
+                                        targets = targets.unsqueeze(-1)
+                                
+                                prop_test_loss = criterion(model_preds, targets)
+                                batch_loss += prop_test_loss
+                    
+                    test_loss += batch_loss.item()
+            
+            test_loss /= len(test_loader)
+            logger.info("test_evaluation_complete", test_loss=test_loss)
+            
+            # Log test metrics
+            mlflow.log_metric("test_loss", test_loss)
+            
+            # Log the inference JSON as an artifact
+            inference_output_path = os.path.join(output_dir, config.inference_output)
+            if os.path.exists(inference_output_path):
+                mlflow.log_artifact(inference_output_path)
+    else:
+        # Train without MLflow
+        train(model, train_loader, val_loader, device, config)
+    
     logger.info("training_complete")
     
     # Load best model

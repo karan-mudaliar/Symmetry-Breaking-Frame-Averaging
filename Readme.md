@@ -42,7 +42,7 @@ pip install torch_geometric
 
 # Install other dependencies
 pip install tyro pydantic pymatgen pandas tqdm structlog coolname
-pip install sympy==1.13.1 fsspec ase
+pip install sympy==1.13.1 fsspec ase mlflow
 ```
 
 ### Running Tests

@@ -3,7 +3,7 @@ Configuration management for the FAENet model using pydantic and tyro.
 Integrates frame averaging and enhanced graph construction options.
 """
 from pathlib import Path
-from typing import List, Optional, Union, Literal, Dict, Any
+from typing import List, Optional, Union, Literal, Dict, Any, Tuple
 import structlog
 
 import tyro
@@ -61,6 +61,11 @@ class Config(BaseModel):
     output_dir: Path = Field(Path("./outputs"), description="Output directory")
     inference_output: str = Field("predictions.json", description="File to save predictions")
     device: Literal["cuda", "cpu"] = Field("cuda", description="Device to run on")
+    
+    # MLflow parameters
+    use_mlflow: bool = Field(True, description="Whether to use MLflow for experiment tracking")
+    mlflow_experiment_name: str = Field("FAENet_Training", description="MLflow experiment name")
+    run_name: Optional[str] = Field(None, description="Run name for tracking (auto-generated if None)")
 
 
 # For backward compatibility with very old code

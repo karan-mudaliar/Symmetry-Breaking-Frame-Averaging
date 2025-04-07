@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from faenet.config import get_config, Config
 from faenet.graph_construction import structure_dict_to_graph
 from faenet.frame_averaging import frame_averaging_3D, frame_averaging_2D
-from faenet.dataset import EnhancedSlabDataset, create_dataloader
+from faenet.dataset import SlabDataset, create_dataloader
 
 # Use an absolute path to the test data file
 TEST_DATA_PATH = os.path.abspath(os.path.join(
@@ -40,7 +40,7 @@ class TestIntegration(unittest.TestCase):
         
         # Prepare test configuration
         config = Config(
-            data_dir=TEST_DATA_PATH,  # Use absolute path
+            data_path=TEST_DATA_PATH,  # Use absolute path
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"],
             cutoff=6.0,
@@ -50,8 +50,8 @@ class TestIntegration(unittest.TestCase):
         )
         
         # Create dataset and check first item
-        dataset = EnhancedSlabDataset(
-            data_source=config.data_dir,
+        dataset = SlabDataset(
+            data_source=config.data_path,
             structure_col=config.structure_col,
             target_props=config.target_properties,
             cutoff=config.cutoff,
@@ -80,7 +80,7 @@ class TestIntegration(unittest.TestCase):
         
         # Prepare test configuration
         config = Config(
-            data_dir=TEST_DATA_PATH,  # Use absolute path
+            data_path=TEST_DATA_PATH,  # Use absolute path
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"],
             cutoff=6.0,
@@ -91,8 +91,8 @@ class TestIntegration(unittest.TestCase):
         )
         
         # Create dataset with frame averaging
-        dataset = EnhancedSlabDataset(
-            data_source=config.data_dir,
+        dataset = SlabDataset(
+            data_source=config.data_path,
             structure_col=config.structure_col,
             target_props=config.target_properties,
             cutoff=config.cutoff,
@@ -130,7 +130,7 @@ class TestIntegration(unittest.TestCase):
         
         # Prepare test configuration
         config = Config(
-            data_dir=TEST_DATA_PATH,  # Use absolute path
+            data_path=TEST_DATA_PATH,  # Use absolute path
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"],
             cutoff=6.0,
@@ -145,7 +145,7 @@ class TestIntegration(unittest.TestCase):
         
         # Create dataloaders
         train_loader, val_loader, test_loader, dataset = create_dataloader(
-            data_source=config.data_dir,
+            data_source=config.data_path,
             structure_col=config.structure_col,
             target_props=config.target_properties,
             cutoff=config.cutoff,
@@ -225,7 +225,7 @@ class TestIntegration(unittest.TestCase):
             max_neighbors=30,
             hidden_channels=64,
             frame_averaging="2D",
-            data_dir=TEST_DATA_PATH,
+            data_path=TEST_DATA_PATH,
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom"]
         )
@@ -235,7 +235,7 @@ class TestIntegration(unittest.TestCase):
             max_neighbors=40,
             hidden_channels=128,
             frame_averaging="3D",
-            data_dir=TEST_DATA_PATH,
+            data_path=TEST_DATA_PATH,
             structure_col="slab",
             target_properties=["WF_top", "WF_bottom", "cleavage_energy"]
         )

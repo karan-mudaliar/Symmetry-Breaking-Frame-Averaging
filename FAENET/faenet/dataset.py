@@ -23,7 +23,7 @@ from faenet.graph_construction import structure_dict_to_graph, structure_to_grap
 # Configure structlog
 logger = structlog.get_logger()
 
-class EnhancedSlabDataset(Dataset):
+class SlabDataset(Dataset):
     """
     Dataset for crystal slab structures with CSV or direct file loading.
     
@@ -31,7 +31,11 @@ class EnhancedSlabDataset(Dataset):
     1. Loading structures from POSCAR/VASP files
     2. Loading structures from CSV with structure dictionaries
     
-    Integrates Comformer-inspired graph construction with frame averaging.
+    Key features:
+    - Unique identifier handling (mpid_miller_term) for each slab
+    - Handles flipped slabs with appropriate identifiers 
+    - Integrates graph construction with customizable cutoffs
+    - Supports frame averaging for symmetry learning
     """
     
     def __init__(
@@ -103,8 +107,36 @@ class EnhancedSlabDataset(Dataset):
             self.df = pd.read_csv(data_source)
             if self.limit:
                 self.df = self.df.head(self.limit)
+            
+            # Check if columns for generating unique identifiers are available
+            id_columns = ['mpid', 'miller', 'term']
+            has_id_columns = all(col in self.df.columns for col in id_columns)
+            has_flipped = 'flipped' in self.df.columns
+            
+            if has_id_columns:
+                # Create unique identifiers similar to Comformer approach
+                if has_flipped:
+                    logger.info("Using mpid+miller+term+flipped as unique identifiers")
+                    # Create combined identifier including flipped status
+                    self.df['uid'] = self.df.apply(
+                        lambda row: f"{row['mpid']}_{row['miller']}_{row['term']}" + 
+                                    (f"_flipped" if row['flipped'] == 'flipped' else ""), 
+                        axis=1
+                    )
+                else:
+                    logger.info("Using mpid+miller+term as unique identifiers")
+                    # Create combined identifier without flipped status
+                    self.df['uid'] = self.df.apply(
+                        lambda row: f"{row['mpid']}_{row['miller']}_{row['term']}", 
+                        axis=1
+                    )
                 
-            self.file_list = self.df.index.tolist()
+                # Use the unique identifiers for file_list
+                self.file_list = self.df['uid'].tolist()
+            else:
+                # Fall back to index-based identifiers
+                logger.info("Using DataFrame indices as identifiers (mpid/miller/term not found)")
+                self.file_list = self.df.index.astype(str).tolist()  # Convert to strings for consistency
             
             # Target properties from columns
             self.target_properties = {}
@@ -187,17 +219,8 @@ class EnhancedSlabDataset(Dataset):
         
         return data
 
-# Keep original SlabDataset for backward compatibility
-class SlabDataset(EnhancedSlabDataset):
-    """Legacy interface for SlabDataset."""
-    
-    def __init__(self, data_dir, target_properties=None, transform=None):
-        """Initialize with original parameters."""
-        super().__init__(
-            data_source=data_dir,
-            target_props=target_properties,
-            transform=transform
-        )
+# For backward compatibility, EnhancedSlabDataset is now an alias for SlabDataset
+EnhancedSlabDataset = SlabDataset
 
 # Enhanced dataloader creation function
 def create_dataloader(
@@ -226,7 +249,7 @@ def create_dataloader(
     np.random.seed(seed)
     
     # Create dataset
-    dataset = EnhancedSlabDataset(
+    dataset = SlabDataset(
         data_source=data_source,
         structure_col=structure_col,
         target_props=target_props,
