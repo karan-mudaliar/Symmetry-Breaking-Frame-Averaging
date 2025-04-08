@@ -104,9 +104,11 @@ class TestTraining(unittest.TestCase):
             
             # Check the run has expected metrics
             latest_run = mlflow.search_runs().iloc[0]
-            self.assertIn("train_loss", latest_run, "Run should log train_loss")
-            self.assertIn("val_loss", latest_run, "Run should log val_loss")
-            self.assertIn("test_loss", latest_run, "Run should log test_loss")
+            
+            # Directly check if metrics columns exist
+            self.assertIn("metrics.train_loss", latest_run.keys(), "Run should log train_loss")
+            self.assertIn("metrics.val_loss", latest_run.keys(), "Run should log val_loss")
+            self.assertIn("metrics.test_loss", latest_run.keys(), "Run should log test_loss")
             
             print("✅ MLflow integration test passed!")
             

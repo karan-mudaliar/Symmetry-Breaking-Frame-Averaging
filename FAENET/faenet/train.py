@@ -542,24 +542,30 @@ def train_faenet(
         run_name = generate_run_name()
         logger.info("generated_run_name", run_name=run_name)
     
-    # Create config object
-    config = Config(
-        batch_size=batch_size,
-        epochs=epochs,
-        learning_rate=learning_rate,
-        weight_decay=weight_decay,
-        seed=seed,
-        num_workers=num_workers,
-        test_ratio=test_ratio,
-        val_ratio=val_ratio,
-        frame_averaging=frame_averaging,
-        fa_method=fa_method,
-        cutoff=cutoff,
-        output_dir=output_dir,
-        use_mlflow=use_mlflow,
-        mlflow_experiment_name=mlflow_experiment_name,
-        run_name=run_name
-    )
+    # Create config object with all parameters
+    config_params = {
+        'batch_size': batch_size,
+        'epochs': epochs,
+        'learning_rate': learning_rate,
+        'weight_decay': weight_decay,
+        'seed': seed,
+        'num_workers': num_workers,
+        'test_ratio': test_ratio,
+        'val_ratio': val_ratio,
+        'frame_averaging': frame_averaging,
+        'fa_method': fa_method,
+        'cutoff': cutoff,
+        'output_dir': output_dir,
+        'use_mlflow': use_mlflow,
+        'mlflow_experiment_name': mlflow_experiment_name,
+        'run_name': run_name,
+        'data_path': data_path,
+        'structure_col': structure_col,
+        'target_properties': target_properties  # Explicitly include target_properties
+    }
+    
+    # Create config from parameters
+    config = Config(**config_params)
     
     # Create dataset
     logger.info("loading_dataset", data_path=str(data_path))
