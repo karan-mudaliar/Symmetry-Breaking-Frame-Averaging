@@ -5,6 +5,7 @@ This script demonstrates training a small model for a few epochs.
 """
 import os
 import sys
+import time
 import torch
 import unittest
 from pathlib import Path
@@ -85,9 +86,14 @@ class TestTraining(unittest.TestCase):
             seed=42
         )
         
-        # Count initial runs
-        mlflow.set_experiment(config.mlflow_experiment_name)
+        # Set up a new experiment with a unique name for this test run to ensure isolation
+        unique_experiment_name = f"FAENet_Test_Run_{id(self)}_{int(time.time())}"
+        config.mlflow_experiment_name = unique_experiment_name
+        mlflow.set_experiment(unique_experiment_name)
+        
+        # Make sure we start with a clean slate
         initial_runs = len([run for run in mlflow.search_runs()])
+        print(f"Initial runs in experiment '{unique_experiment_name}': {initial_runs}")
         
         try:
             # Run training with MLflow enabled, exclude output_properties from kwargs
@@ -98,12 +104,21 @@ class TestTraining(unittest.TestCase):
                 **kwargs
             )
             
+            # Wait a moment to ensure MLflow operations complete
+            time.sleep(1)
+            
             # Check that a new run was created
             final_runs = len([run for run in mlflow.search_runs()])
-            self.assertEqual(final_runs, initial_runs + 1, "A new MLflow run should have been created")
+            print(f"Final runs in experiment '{unique_experiment_name}': {final_runs}")
             
-            # Check the run has expected metrics
-            latest_run = mlflow.search_runs().iloc[0]
+            # Either there should be exactly 1 run in the new experiment, or one more than before
+            if initial_runs == 0:
+                self.assertEqual(final_runs, 1, f"A new MLflow run should have been created in experiment {unique_experiment_name}")
+            else:
+                self.assertEqual(final_runs, initial_runs + 1, f"A new MLflow run should have been created in experiment {unique_experiment_name}")
+            
+            # Check the run has expected metrics - make sure we look only in our experiment
+            latest_run = mlflow.search_runs(experiment_names=[unique_experiment_name]).iloc[0]
             
             # Directly check if metrics columns exist
             self.assertIn("metrics.train_loss", latest_run.keys(), "Run should log train_loss")
