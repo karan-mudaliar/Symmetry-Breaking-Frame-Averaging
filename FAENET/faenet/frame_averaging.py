@@ -241,6 +241,43 @@ class RandomRotate:
         return data, rot, rot.t()
 
 
+def compute_consistency_loss(frame_predictions, normalize=True):
+    """Compute consistency loss as variance across frame predictions for each object.
+    
+    This function calculates how consistent model predictions are across different
+    reference frames of the same structure. Lower variance means better equivariance.
+    
+    Args:
+        frame_predictions: List of tensors with predictions for each frame.
+                          Each tensor has shape [batch_size, output_dim].
+        normalize: Whether to normalize the loss by the squared magnitude of predictions.
+        
+    Returns:
+        Loss tensor (scalar) representing the mean variance across frames.
+    """
+    # Stack predictions from all frames
+    preds = torch.stack(frame_predictions)  # shape: [num_frames, batch_size, output_dim]
+    
+    # Calculate variance across frames (dim=0) for each object independently
+    # Use unbiased=False to get the mathematical variance formula sum((x-mean)^2)/n
+    # rather than the default PyTorch behavior which uses (n-1) in the denominator
+    variance_per_object = torch.var(preds, dim=0, unbiased=False)  # shape: [batch_size, output_dim]
+    
+    # Average across the output dimension for each object
+    variance_per_object = variance_per_object.mean(dim=-1)  # shape: [batch_size]
+    
+    # Normalize by squared magnitude of predictions if requested
+    if normalize:
+        # Square of predictions, averaged across frames and output dimensions, plus small epsilon
+        norm_factor = (preds**2).mean(dim=[0, 2]) + 1e-6
+        variance_per_object = variance_per_object / norm_factor
+    
+    # Average across all objects in the batch
+    mean_variance = variance_per_object.mean()  # scalar
+    
+    return mean_variance
+
+
 def data_augmentation(g, d=3, *args):
     """Data augmentation where we randomly rotate each graph
     in the dataloader transform

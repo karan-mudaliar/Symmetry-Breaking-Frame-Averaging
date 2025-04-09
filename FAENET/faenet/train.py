@@ -112,6 +112,16 @@ def train(model, train_loader, val_loader, device, config):
                 
                 # Calculate loss by averaging predictions across frames
                 loss = 0
+                
+                # Initialize consistency loss if enabled
+                consistency_loss = None
+                if hasattr(config, 'consistency_loss') and config.consistency_loss:
+                    from faenet.frame_averaging import compute_consistency_loss
+                    consistency_loss = 0
+                    logger.info("consistency_loss_enabled", 
+                               weight=config.consistency_weight,
+                               normalize=config.consistency_norm)
+                
                 for prop_idx, prop in enumerate(model.output_properties):
                     if hasattr(batch, prop):
                         # Average predictions across frames 
@@ -128,6 +138,26 @@ def train(model, train_loader, val_loader, device, config):
                         # Calculate loss for this property
                         prop_loss = criterion(avg_pred, targets)
                         loss += prop_loss
+                        
+                        # Calculate consistency loss if enabled
+                        if consistency_loss is not None:
+                            prop_consistency = compute_consistency_loss(
+                                e_all[prop_idx], 
+                                normalize=config.consistency_norm
+                            )
+                            consistency_loss += prop_consistency
+                            logger.debug("property_consistency_loss", 
+                                        property=prop, 
+                                        value=prop_consistency.item())
+                
+                # Add weighted consistency loss to total loss if enabled
+                if consistency_loss is not None:
+                    loss += config.consistency_weight * consistency_loss
+                    
+                    # Log metrics if MLflow is enabled
+                    if hasattr(config, 'use_mlflow') and config.use_mlflow:
+                        mlflow.log_metric("consistency_loss", consistency_loss.item(), step=epoch)
+                        mlflow.log_metric("train_consistency_loss", consistency_loss.item(), step=epoch)
             
             else:
                 # Standard forward pass without frame averaging
@@ -222,6 +252,13 @@ def train(model, train_loader, val_loader, device, config):
                     
                     # Calculate validation loss
                     batch_loss = 0
+                    
+                    # Initialize consistency loss if enabled
+                    val_consistency_loss = None
+                    if hasattr(config, 'consistency_loss') and config.consistency_loss:
+                        from faenet.frame_averaging import compute_consistency_loss
+                        val_consistency_loss = 0
+                    
                     for prop_idx, prop in enumerate(model.output_properties):
                         if hasattr(batch, prop):
                             # Average predictions across frames
@@ -237,6 +274,22 @@ def train(model, train_loader, val_loader, device, config):
                             
                             prop_val_loss = criterion(avg_pred, targets)
                             batch_loss += prop_val_loss
+                            
+                            # Calculate consistency loss if enabled
+                            if val_consistency_loss is not None:
+                                prop_consistency = compute_consistency_loss(
+                                    e_all[prop_idx], 
+                                    normalize=config.consistency_norm
+                                )
+                                val_consistency_loss += prop_consistency
+                    
+                    # Add weighted consistency loss to total loss if enabled
+                    if val_consistency_loss is not None:
+                        batch_loss += config.consistency_weight * val_consistency_loss
+                        
+                        # Log metrics if MLflow is enabled
+                        if hasattr(config, 'use_mlflow') and config.use_mlflow:
+                            mlflow.log_metric("val_consistency_loss", val_consistency_loss.item(), step=epoch)
                 else:
                     # Standard forward pass
                     preds = model(batch)
@@ -728,6 +781,13 @@ def train_faenet(
                         
                         # Calculate test loss
                         batch_loss = 0
+                        
+                        # Initialize consistency loss if enabled
+                        test_consistency_loss = None
+                        if hasattr(config, 'consistency_loss') and config.consistency_loss:
+                            from faenet.frame_averaging import compute_consistency_loss
+                            test_consistency_loss = 0
+                        
                         for prop_idx, prop in enumerate(model.output_properties):
                             if hasattr(batch, prop):
                                 # Average predictions across frames
@@ -743,6 +803,22 @@ def train_faenet(
                                 
                                 prop_test_loss = criterion(avg_pred, targets)
                                 batch_loss += prop_test_loss
+                                
+                                # Calculate consistency loss if enabled
+                                if test_consistency_loss is not None:
+                                    prop_consistency = compute_consistency_loss(
+                                        e_all[prop_idx], 
+                                        normalize=config.consistency_norm
+                                    )
+                                    test_consistency_loss += prop_consistency
+                        
+                        # Add weighted consistency loss to total loss if enabled
+                        if test_consistency_loss is not None:
+                            batch_loss += config.consistency_weight * test_consistency_loss
+                            
+                            # Log metrics if MLflow is enabled
+                            if hasattr(config, 'use_mlflow') and config.use_mlflow:
+                                mlflow.log_metric("test_consistency_loss", test_consistency_loss.item())
                     else:
                         # Standard forward pass
                         preds = model(batch)

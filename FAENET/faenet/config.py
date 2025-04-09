@@ -67,6 +67,11 @@ class Config(BaseModel):
     mlflow_experiment_name: str = Field("FAENet_Training", description="MLflow experiment name")
     run_name: Optional[str] = Field(None, description="Run name for tracking (auto-generated if None)")
     end_mlflow_run: bool = Field(True, description="Whether to end the MLflow run after training")
+    
+    # Consistency loss parameters
+    consistency_loss: bool = Field(False, description="Whether to use variance-based consistency loss")
+    consistency_weight: float = Field(0.1, description="Weight for consistency loss")
+    consistency_norm: bool = Field(True, description="Whether to normalize consistency loss")
 
 
 # For backward compatibility with very old code

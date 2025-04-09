@@ -38,6 +38,121 @@ class TestTraining(unittest.TestCase):
         self.output_dir = Path("./test_outputs")
         os.makedirs(self.output_dir, exist_ok=True)
     
+    def test_consistency_loss_and_mlflow(self):
+        """Test consistency loss calculation and MLflow integration"""
+        if not self.test_data_exists:
+            self.skipTest("Test data file not found")
+        
+        # Import MLflow for tests
+        try:
+            import mlflow
+            import uuid
+        except ImportError:
+            self.skipTest("MLflow not installed, skipping test")
+            
+        print("=== Testing Consistency Loss with MLflow Integration ===")
+        
+        # Create a completely unique experiment name to avoid any conflicts
+        unique_id = str(uuid.uuid4())
+        unique_experiment_name = f"FAENet_Test_Consistency_{unique_id}"
+        
+        # Set up configuration with MLflow enabled and consistency loss
+        config = Config(
+            # Model parameters (minimized for fast testing)
+            cutoff=6.0,
+            max_neighbors=20,
+            num_gaussians=10,
+            hidden_channels=32,
+            num_filters=32,
+            num_interactions=1,
+            dropout=0.0,
+            output_properties=["WF_top", "WF_bottom"],
+            
+            # Training parameters
+            batch_size=4,
+            epochs=1,  # Minimum to test logging
+            learning_rate=0.001,
+            weight_decay=1e-5,
+            frame_averaging="2D",  # Enable frame averaging for consistency loss
+            fa_method="all",
+            
+            # Data parameters
+            data_path=TEST_DATA_PATH,
+            structure_col="slab",
+            target_properties=["WF_top", "WF_bottom"],
+            
+            # MLflow settings
+            use_mlflow=True,
+            mlflow_experiment_name=unique_experiment_name,
+            run_name=f"consistency-test-{unique_id}",
+            
+            # Consistency loss parameters
+            consistency_loss=True,  # Enable consistency loss
+            consistency_weight=0.1,
+            consistency_norm=True,
+            
+            # Other settings
+            output_dir=self.output_dir,
+            device="cpu",
+            seed=42
+        )
+        
+        try:
+            # Save the original mlflow.log_metric function
+            original_log_metric = mlflow.log_metric
+            
+            # Variables to track logging
+            logged_metrics = []
+            
+            # Create a patching function to track what metrics are logged
+            def patched_log_metric(key, value, **kwargs):
+                logged_metrics.append(key)
+                return original_log_metric(key, value, **kwargs)
+            
+            # Patch mlflow.log_metric for this test
+            mlflow.log_metric = patched_log_metric
+            
+            # Run training with patched mlflow
+            try:
+                print("Starting training with consistency_loss enabled")
+                kwargs = config.model_dump()
+                target_props = kwargs.pop('target_properties')
+                
+                # Log key parameters for debugging
+                print(f"Configuration: frame_averaging={kwargs.get('frame_averaging')}, consistency_loss={kwargs.get('consistency_loss')}")
+                
+                # Set end_mlflow_run=True to ensure run is properly closed
+                kwargs['end_mlflow_run'] = True
+                
+                model, _ = train_faenet(
+                    target_properties=target_props,
+                    **kwargs
+                )
+                
+                # Restore the original MLflow function
+                mlflow.log_metric = original_log_metric
+                
+                # Check that expected metrics were logged
+                print(f"Metrics logged during training: {logged_metrics}")
+                self.assertTrue("train_loss" in logged_metrics, "train_loss should be logged")
+                self.assertTrue("val_loss" in logged_metrics, "val_loss should be logged")
+                self.assertTrue("test_loss" in logged_metrics, "test_loss should be logged")
+                
+                # Check for any consistency loss metrics
+                consistency_metrics = [m for m in logged_metrics if "consistency" in m]
+                self.assertTrue(len(consistency_metrics) > 0, 
+                              f"No consistency metrics found in {logged_metrics}")
+                
+                print("✅ Consistency loss and MLflow integration test passed!")
+                
+            except Exception as e:
+                # Restore original function even if there's an error
+                mlflow.log_metric = original_log_metric
+                raise e
+                
+        except Exception as e:
+            self.fail(f"Consistency loss with MLflow integration test failed with error: {e}")
+    
     def test_mlflow_integration(self):
         """Test MLflow integration during training"""
         if not self.test_data_exists:
