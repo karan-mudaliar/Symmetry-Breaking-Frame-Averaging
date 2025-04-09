@@ -124,11 +124,17 @@ class TestTraining(unittest.TestCase):
                 # Set end_mlflow_run=True to ensure run is properly closed
                 kwargs['end_mlflow_run'] = True
                 
-                # Force consistency_loss to be True, don't rely on kwargs
-                # Also add tons of debug print statements
+                # IMPORTANT: We need to EITHER explicitly pass the parameters OR leave them in kwargs
+                # Since we're setting them explicitly, we need to remove them from kwargs
+                # to avoid "multiple values for keyword argument" error
+                for param in ['consistency_loss', 'consistency_weight', 'consistency_norm']:
+                    if param in kwargs:
+                        kwargs.pop(param)
+                
+                # Add debug print statements
                 print(f"Target properties: {target_props}")
                 print(f"Frame averaging: {kwargs.get('frame_averaging')}")
-                print(f"Consistency settings: enabled={True}, weight={0.1}, norm={True}")
+                print(f"Consistency settings: enabled=True, weight=0.1, norm=True")
                 
                 model, _ = train_faenet(
                     target_properties=target_props,
