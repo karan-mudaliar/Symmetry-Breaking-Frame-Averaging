@@ -255,8 +255,21 @@ def compute_consistency_loss(frame_predictions, normalize=True):
     Returns:
         Loss tensor (scalar) representing the mean variance across frames.
     """
+    # Add debug logging
+    num_frames = len(frame_predictions)
+    if num_frames == 0:
+        logger.error("empty_frame_predictions", len=0)
+        return torch.tensor(0.0, requires_grad=True)
+    
+    shapes = [f.shape for f in frame_predictions]
+    logger.warn("consistency_loss_input", 
+               num_frames=num_frames, 
+               shapes=str(shapes),
+               first_type=type(frame_predictions[0]).__name__)
+    
     # Stack predictions from all frames
     preds = torch.stack(frame_predictions)  # shape: [num_frames, batch_size, output_dim]
+    logger.warn("stacked_predictions", shape=str(preds.shape))
     
     # Calculate variance across frames (dim=0) for each object independently
     # Use unbiased=False to get the mathematical variance formula sum((x-mean)^2)/n
@@ -274,6 +287,7 @@ def compute_consistency_loss(frame_predictions, normalize=True):
     
     # Average across all objects in the batch
     mean_variance = variance_per_object.mean()  # scalar
+    logger.warn("consistency_loss_result", value=mean_variance.item())
     
     return mean_variance
 

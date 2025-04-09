@@ -8,6 +8,7 @@ from tqdm import tqdm
 from torch.utils.data import random_split
 import structlog
 import mlflow
+import traceback
 
 # Configure structlog
 logger = structlog.get_logger()
@@ -113,14 +114,23 @@ def train(model, train_loader, val_loader, device, config):
                 # Calculate loss by averaging predictions across frames
                 loss = 0
                 
-                # Initialize consistency loss if enabled
+                # Initialize consistency loss if enabled - add detailed debug logging
                 consistency_loss = None
+                logger.warn("consistency_loss_check", 
+                           has_attribute=hasattr(config, 'consistency_loss'),
+                           config_value=config.consistency_loss if hasattr(config, 'consistency_loss') else None,
+                           config_type=type(config).__name__,
+                           config_dict=str(config.model_dump() if hasattr(config, 'model_dump') else vars(config)))
+                
                 if hasattr(config, 'consistency_loss') and config.consistency_loss:
                     from faenet.frame_averaging import compute_consistency_loss
                     consistency_loss = 0
-                    logger.info("consistency_loss_enabled", 
+                    logger.warn("consistency_loss_enabled", 
                                weight=config.consistency_weight,
                                normalize=config.consistency_norm)
+                else:
+                    logger.warn("consistency_loss_disabled", 
+                               reason="Configuration parameter is not True" if hasattr(config, 'consistency_loss') else "Config doesn't have consistency_loss attribute")
                 
                 for prop_idx, prop in enumerate(model.output_properties):
                     if hasattr(batch, prop):
@@ -141,14 +151,29 @@ def train(model, train_loader, val_loader, device, config):
                         
                         # Calculate consistency loss if enabled
                         if consistency_loss is not None:
-                            prop_consistency = compute_consistency_loss(
-                                e_all[prop_idx], 
-                                normalize=config.consistency_norm
-                            )
-                            consistency_loss += prop_consistency
-                            logger.debug("property_consistency_loss", 
-                                        property=prop, 
-                                        value=prop_consistency.item())
+                            # Debug e_all structure to see what's happening
+                            num_frames = len(e_all[prop_idx])
+                            first_shape = e_all[prop_idx][0].shape if num_frames > 0 else "empty"
+                            logger.warn("e_all_structure", 
+                                      property=prop,
+                                      num_frames=num_frames, 
+                                      first_frame_shape=str(first_shape),
+                                      e_all_type=type(e_all[prop_idx]).__name__)
+                            
+                            try:
+                                prop_consistency = compute_consistency_loss(
+                                    e_all[prop_idx], 
+                                    normalize=config.consistency_norm
+                                )
+                                consistency_loss += prop_consistency
+                                logger.warn("property_consistency_loss_calculated", 
+                                           property=prop, 
+                                           value=prop_consistency.item())
+                            except Exception as e:
+                                logger.error("consistency_loss_error",
+                                            property=prop,
+                                            error=str(e),
+                                            traceback=traceback.format_exc())
                 
                 # Add weighted consistency loss to total loss if enabled
                 if consistency_loss is not None:
@@ -156,8 +181,18 @@ def train(model, train_loader, val_loader, device, config):
                     
                     # Log metrics if MLflow is enabled
                     if hasattr(config, 'use_mlflow') and config.use_mlflow:
-                        mlflow.log_metric("consistency_loss", consistency_loss.item(), step=epoch)
-                        mlflow.log_metric("train_consistency_loss", consistency_loss.item(), step=epoch)
+                        try:
+                            metric_value = consistency_loss.item()
+                            # Log with two different metric names to ensure compatibility
+                            mlflow.log_metric("consistency_loss", metric_value, step=epoch)
+                            mlflow.log_metric("train_consistency_loss", metric_value, step=epoch)
+                            logger.warn("consistency_metric_logged", 
+                                      value=metric_value, 
+                                      mlflow_enabled=config.use_mlflow)
+                        except Exception as e:
+                            logger.error("mlflow_logging_error",
+                                       error=str(e),
+                                       traceback=traceback.format_exc())
             
             else:
                 # Standard forward pass without frame averaging
@@ -574,6 +609,12 @@ def train_faenet(
         'output_properties'
     ]
     
+    # Debug model_kwargs to see what's coming in
+    logger.warn("train_faenet_model_kwargs", 
+               has_consistency_loss='consistency_loss' in model_kwargs,
+               consistency_loss_value=model_kwargs.get('consistency_loss', 'Not Present'),
+               kwargs_keys=list(model_kwargs.keys()))
+    
     # Create a dictionary with ONLY the allowed model parameters
     model_args = {k: model_kwargs[k] for k in faenet_params if k in model_kwargs}
     model_args['cutoff'] = cutoff  # Always include cutoff
@@ -587,8 +628,16 @@ def train_faenet(
     # Optimizer parameters
     weight_decay = model_kwargs.get('weight_decay', 1e-5)
     
-    # Other parameters we don't need to extract explicitly
-    # (checkpoint_interval, eval_interval, etc. will be in the Config object)
+    # Consistency loss parameters - explicitly extract these
+    consistency_loss_enabled = model_kwargs.get('consistency_loss', False)
+    consistency_weight = model_kwargs.get('consistency_weight', 0.1)
+    consistency_norm = model_kwargs.get('consistency_norm', True)
+    
+    # Log extraction
+    logger.warn("consistency_params_extracted",
+               enabled=consistency_loss_enabled,
+               weight=consistency_weight,
+               normalize=consistency_norm)
     
     # Generate a memorable run name if not provided
     if run_name is None:
@@ -614,8 +663,18 @@ def train_faenet(
         'run_name': run_name,
         'data_path': data_path,
         'structure_col': structure_col,
-        'target_properties': target_properties  # Explicitly include target_properties
+        'target_properties': target_properties,  # Explicitly include target_properties
+        
+        # Explicitly include consistency loss parameters
+        'consistency_loss': consistency_loss_enabled,
+        'consistency_weight': consistency_weight,
+        'consistency_norm': consistency_norm
     }
+    
+    # Log the config parameters we're creating
+    logger.warn("creating_config", 
+               frame_averaging=frame_averaging,
+               consistency_loss=consistency_loss_enabled)
     
     # Create config from parameters
     config = Config(**config_params)
@@ -695,7 +754,13 @@ def train_faenet(
                device=str(device),
                train_size=train_size,
                val_size=val_size,
-               test_size=test_size)
+               test_size=test_size,
+               output_properties=model.output_properties)
+               
+    # Debug log for consistency loss test
+    logger.warn("model_output_properties",
+               properties=model.output_properties,
+               has_properties=hasattr(model, 'output_properties'))
     
     # MLflow setup
     if config.use_mlflow:

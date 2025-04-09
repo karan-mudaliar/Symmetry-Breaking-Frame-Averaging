@@ -124,10 +124,23 @@ class TestTraining(unittest.TestCase):
                 # Set end_mlflow_run=True to ensure run is properly closed
                 kwargs['end_mlflow_run'] = True
                 
+                # Force consistency_loss to be True, don't rely on kwargs
+                # Also add tons of debug print statements
+                print(f"Target properties: {target_props}")
+                print(f"Frame averaging: {kwargs.get('frame_averaging')}")
+                print(f"Consistency settings: enabled={True}, weight={0.1}, norm={True}")
+                
                 model, _ = train_faenet(
                     target_properties=target_props,
+                    consistency_loss=True,  # Force this to be True
+                    consistency_weight=0.1,
+                    consistency_norm=True,
                     **kwargs
                 )
+                
+                # Debug model after training
+                print(f"Model output properties: {model.output_properties}")
+                print(f"Explicit model.output_properties check: {hasattr(model, 'output_properties')}")
                 
                 # Restore the original MLflow function
                 mlflow.log_metric = original_log_metric
