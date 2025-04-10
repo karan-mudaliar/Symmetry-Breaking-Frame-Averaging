@@ -54,6 +54,7 @@ class Config(BaseModel):
         description="Column name for structure data in CSV format")
     target_properties: List[str] = Field(["energy"], description="Target properties to predict")
     prop_files: Optional[List[str]] = Field(None, description="Files with property values")
+    use_property_scaling: bool = Field(True, description="Whether to apply standardization to properties")
     pbc: bool = Field(True, description="Use periodic boundary conditions")
     limit: Optional[int] = Field(None, description="Limit number of structures to process")
     

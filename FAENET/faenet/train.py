@@ -739,6 +739,9 @@ def train_faenet(
         run_name = generate_run_name()
         logger.info("generated_run_name", run_name=run_name)
     
+    # Get property scaling parameter
+    use_property_scaling = model_kwargs.get('use_property_scaling', True)
+    
     # Create config object with all parameters
     config_params = {
         'batch_size': batch_size,
@@ -763,21 +766,28 @@ def train_faenet(
         # Explicitly include consistency loss parameters
         'consistency_loss': consistency_loss_enabled,
         'consistency_weight': consistency_weight,
-        'consistency_norm': consistency_norm
+        'consistency_norm': consistency_norm,
+        
+        # Explicitly include property scaling parameter
+        'use_property_scaling': use_property_scaling
     }
     
     # Log the config parameters we're creating
     logger.warn("creating_config", 
                frame_averaging=frame_averaging,
-               consistency_loss=consistency_loss_enabled)
+               consistency_loss=consistency_loss_enabled,
+               use_property_scaling=use_property_scaling)
     
     # Create config from parameters
     config = Config(**config_params)
     
-    # Create dataset and dataloaders with property scaling
+    # Create dataset and dataloaders with optional property scaling
     logger.info("loading_dataset", data_path=str(data_path))
     
-    # Use the enhanced dataloader creation function that handles property scaling
+    # Get property scaling parameter
+    use_property_scaling = model_kwargs.get('use_property_scaling', True)
+    
+    # Use the enhanced dataloader creation function
     from faenet.dataset import create_dataloader
     
     train_loader, val_loader, test_loader, dataset = create_dataloader(
@@ -795,7 +805,8 @@ def train_faenet(
         train_ratio=1 - val_ratio - test_ratio,
         val_ratio=val_ratio,
         test_ratio=test_ratio,
-        seed=seed
+        seed=seed,
+        use_property_scaling=use_property_scaling
     )
     
     # Get dataset sizes for logging

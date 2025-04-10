@@ -15,6 +15,8 @@ import pickle
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from faenet.dataset import create_dataloader
+from faenet.train import train_faenet
+from faenet.config import Config
 from sklearn.preprocessing import StandardScaler
 
 # Use an absolute path to the test data file
@@ -159,6 +161,144 @@ class TestPropertyScaling(unittest.TestCase):
             loaded_inverse = loaded_scalers[prop].inverse_transform([[test_value]])[0][0]
             self.assertAlmostEqual(orig_inverse, loaded_inverse, places=5,
                                   msg=f"Inverse transform for {prop} should match after loading")
+    
+    def test_optional_property_scaling(self):
+        """Test that property scaling can be disabled."""
+        # Create dataloader WITHOUT property scaling
+        train_loader, val_loader, test_loader, dataset = create_dataloader(
+            data_source=TEST_DATA_PATH,
+            structure_col="slab",
+            target_props=["WF_bottom", "WF_top"],
+            batch_size=4,
+            train_ratio=0.7,
+            val_ratio=0.15,
+            test_ratio=0.15,
+            use_property_scaling=False  # Disable property scaling
+        )
+        
+        # Check that scalers were not created or are empty
+        self.assertTrue(hasattr(dataset, 'scalers'), "Dataset should have scalers attribute")
+        self.assertEqual(len(dataset.scalers), 0, "Dataset should have no scalers when scaling is disabled")
+        
+        # Verify we're keeping track of the scaling decision
+        self.assertTrue(hasattr(dataset, 'use_scaling'), "Dataset should track scaling decision")
+        self.assertFalse(dataset.use_scaling, "use_scaling should be False when disabled")
+        
+        # Check that original values are passed directly
+        for batch in train_loader:
+            for prop in ["WF_bottom", "WF_top"]:
+                # Should have both the main property and the original property
+                self.assertTrue(hasattr(batch, prop), f"Batch should have {prop} attribute")
+                self.assertTrue(hasattr(batch, f"{prop}_orig"), f"Batch should have {prop}_orig attribute")
+                
+                # Get values
+                values = getattr(batch, prop)
+                orig_values = getattr(batch, f"{prop}_orig")
+                
+                # They should be identical since scaling is disabled
+                self.assertTrue(torch.allclose(values, orig_values), 
+                               f"{prop} and {prop}_orig should be identical when scaling is disabled")
+                
+                print(f"Property {prop}: {values}")
+                print(f"Original {prop}: {orig_values}")
+                
+                # With scaling disabled, mean and std should reflect original data
+                if values.shape[0] > 1:
+                    mean = torch.mean(values).item()
+                    std = torch.std(values).item()
+                    print(f"{prop} statistics - Mean: {mean:.4f}, Std: {std:.4f}")
+                    
+                    # These should NOT be near 0 and 1 since scaling is disabled
+                    self.assertNotAlmostEqual(mean, 0.0, delta=0.5, 
+                                             msg=f"Mean of unscaled {prop} should NOT be near 0")
+            
+            # Only check first batch
+            break
+    
+    def test_property_scaling_in_train_function(self):
+        """Test that property scaling parameter is respected in the train_faenet function."""
+        # Set up minimal configuration for a quick test
+        output_dir = os.path.join(self.temp_dir.name, "scaling_test_output")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Run with property scaling DISABLED
+        print("\nTesting train_faenet with property scaling DISABLED")
+        model, test_loader = train_faenet(
+            data_path=TEST_DATA_PATH,
+            structure_col="slab",
+            target_properties=["WF_bottom", "WF_top"],
+            epochs=1,  # Minimum for test
+            batch_size=4,
+            num_interactions=1,  # Smaller model for speed
+            hidden_channels=16,
+            output_dir=output_dir,
+            use_mlflow=False,
+            device="cpu",
+            use_property_scaling=False  # Explicitly disable
+        )
+        
+        # Verify the dataset has scaling disabled
+        dataset = test_loader.dataset.dataset
+        
+        self.assertTrue(hasattr(dataset, 'use_scaling'), 
+                       "Dataset should have use_scaling attribute")
+        self.assertFalse(dataset.use_scaling, 
+                        "Dataset use_scaling should be False when disabled")
+        
+        # Check scaler file
+        scaler_path = os.path.join(output_dir, "property_scalers.pkl")
+        
+        # If file exists, it should contain empty or no scalers
+        if os.path.exists(scaler_path):
+            with open(scaler_path, 'rb') as f:
+                scalers = pickle.load(f)
+            self.assertEqual(len(scalers), 0, 
+                           "Property scalers should be empty when scaling is disabled")
+        
+        # Run with property scaling ENABLED (default)
+        print("\nTesting train_faenet with property scaling ENABLED")
+        output_dir = os.path.join(self.temp_dir.name, "scaling_enabled_test_output")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        model, test_loader = train_faenet(
+            data_path=TEST_DATA_PATH,
+            structure_col="slab",
+            target_properties=["WF_bottom", "WF_top"],
+            epochs=1,  # Minimum for test
+            batch_size=4,
+            num_interactions=1,  # Smaller model for speed
+            hidden_channels=16,
+            output_dir=output_dir,
+            use_mlflow=False,
+            device="cpu"
+            # use_property_scaling=True is the default
+        )
+        
+        # Verify the dataset has scaling enabled
+        dataset = test_loader.dataset.dataset
+        
+        self.assertTrue(hasattr(dataset, 'use_scaling'), 
+                       "Dataset should have use_scaling attribute")
+        self.assertTrue(dataset.use_scaling, 
+                       "Dataset use_scaling should be True when enabled")
+        
+        # Check scaler file
+        scaler_path = os.path.join(output_dir, "property_scalers.pkl")
+        self.assertTrue(os.path.exists(scaler_path), 
+                       "Property scalers file should exist when scaling is enabled")
+        
+        with open(scaler_path, 'rb') as f:
+            scalers = pickle.load(f)
+        
+        self.assertGreater(len(scalers), 0, 
+                          "Property scalers should not be empty when scaling is enabled")
+        
+        # Verify scalers are properly fitted
+        for prop in ["WF_bottom", "WF_top"]:
+            self.assertIn(prop, scalers, f"Scaler for {prop} should exist")
+            self.assertTrue(hasattr(scalers[prop], 'mean_'), 
+                          f"Scaler for {prop} should be fitted")
+            print(f"Scaler for {prop}: mean={scalers[prop].mean_[0]:.4f}, std={scalers[prop].scale_[0]:.4f}")
 
 
 if __name__ == "__main__":

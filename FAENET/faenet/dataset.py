@@ -185,8 +185,8 @@ class SlabDataset(Dataset):
                     # Store original value for reference
                     setattr(data, f"{prop_name}_orig", torch.tensor(value, dtype=torch.float))
                     
-                    # Apply scaling if scaler exists
-                    if hasattr(self, 'scalers') and prop_name in self.scalers:
+                    # Apply scaling if enabled and scaler exists
+                    if hasattr(self, 'use_scaling') and self.use_scaling and hasattr(self, 'scalers') and prop_name in self.scalers:
                         value = float(self.scalers[prop_name].transform([[value]])[0][0])
                     
                     # Store (potentially scaled) value
@@ -204,8 +204,8 @@ class SlabDataset(Dataset):
                     # Store original value for reference
                     setattr(data, f"{prop_name}_orig", torch.tensor(value, dtype=torch.float))
                     
-                    # Apply scaling if scaler exists
-                    if hasattr(self, 'scalers') and prop_name in self.scalers:
+                    # Apply scaling if enabled and scaler exists
+                    if hasattr(self, 'use_scaling') and self.use_scaling and hasattr(self, 'scalers') and prop_name in self.scalers:
                         value = float(self.scalers[prop_name].transform([[value]])[0][0])
                     
                     # Store (potentially scaled) value
@@ -254,14 +254,35 @@ def create_dataloader(
     train_ratio=0.8,
     val_ratio=0.1,
     test_ratio=0.1,
-    seed=42
+    seed=42,
+    use_property_scaling=True,
+    **kwargs
 ):
-    """Create train, validation, and test dataloaders with property scaling.
+    """Create train, validation, and test dataloaders with optional property scaling.
     
     This function:
     1. Creates a dataset with the given parameters
-    2. Fits property scalers on the training split
+    2. Fits property scalers on the training split if scaling is enabled
     3. Returns dataloaders for train/val/test splits
+    
+    Args:
+        data_source: Path to data file or directory
+        structure_col: Column name containing structure data
+        target_props: List of target properties to predict
+        cutoff: Cutoff distance for neighbor finding
+        max_neighbors: Maximum number of neighbors per atom
+        pbc: Whether to use periodic boundary conditions
+        frame_averaging: Type of frame averaging to use (None, "2D", "3D")
+        fa_method: Frame averaging method ("all", "det", "random")
+        batch_size: Batch size for dataloaders
+        shuffle: Whether to shuffle the data
+        num_workers: Number of workers for dataloading
+        train_ratio: Ratio of data to use for training
+        val_ratio: Ratio of data to use for validation
+        test_ratio: Ratio of data to use for testing
+        seed: Random seed for reproducibility
+        use_property_scaling: Whether to apply standardization to properties
+        **kwargs: Additional arguments
     """
     from torch.utils.data import random_split, Subset
     from torch_geometric.loader import DataLoader
@@ -297,8 +318,11 @@ def create_dataloader(
     val_indices = indices[n_train:n_train+n_val]
     test_indices = indices[n_train+n_val:]
     
-    # Create property scalers using training data
-    if isinstance(target_props, list) and len(target_props) > 0:
+    # Check if we should apply property scaling
+    use_scaling = kwargs.get('use_property_scaling', True)
+    
+    # Create property scalers using training data if scaling is enabled
+    if isinstance(target_props, list) and len(target_props) > 0 and use_scaling:
         scalers = {}
         
         # Extract data values from training set for each property
@@ -335,8 +359,15 @@ def create_dataloader(
         
         # Store scalers on dataset for later use
         dataset.scalers = scalers
+        dataset.use_scaling = True
+        logger.info("property_scaling_enabled")
     else:
         dataset.scalers = {}
+        dataset.use_scaling = False
+        if not use_scaling:
+            logger.info("property_scaling_disabled")
+        elif not isinstance(target_props, list) or len(target_props) == 0:
+            logger.info("property_scaling_disabled", reason="No target properties specified")
     
     # Create subset datasets
     train_dataset = Subset(dataset, train_indices)
