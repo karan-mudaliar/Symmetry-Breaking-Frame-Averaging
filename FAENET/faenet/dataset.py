@@ -1,8 +1,3 @@
-"""
-Dataset for crystal slabs with properties.
-Integrates Comformer-inspired graph construction with frame averaging.
-"""
-
 import os
 import torch
 import pandas as pd
@@ -188,14 +183,14 @@ class SlabDataset(Dataset):
                     value = values[idx]
                     
                     # Store original value for reference
-                    setattr(data, f"{prop_name}_orig", torch.tensor([value], dtype=torch.float))
+                    setattr(data, f"{prop_name}_orig", torch.tensor(value, dtype=torch.float))
                     
                     # Apply scaling if scaler exists
                     if hasattr(self, 'scalers') and prop_name in self.scalers:
                         value = float(self.scalers[prop_name].transform([[value]])[0][0])
                     
                     # Store (potentially scaled) value
-                    setattr(data, prop_name, torch.tensor([value], dtype=torch.float))
+                    setattr(data, prop_name, torch.tensor(value, dtype=torch.float))
         else:
             # CSV source
             row = self.df.iloc[idx]
@@ -207,14 +202,14 @@ class SlabDataset(Dataset):
                     value = float(row[prop_name])
                     
                     # Store original value for reference
-                    setattr(data, f"{prop_name}_orig", torch.tensor([value], dtype=torch.float))
+                    setattr(data, f"{prop_name}_orig", torch.tensor(value, dtype=torch.float))
                     
                     # Apply scaling if scaler exists
                     if hasattr(self, 'scalers') and prop_name in self.scalers:
                         value = float(self.scalers[prop_name].transform([[value]])[0][0])
                     
                     # Store (potentially scaled) value
-                    setattr(data, prop_name, torch.tensor([value], dtype=torch.float))
+                    setattr(data, prop_name, torch.tensor(value, dtype=torch.float))
         
         # Apply frame averaging if requested
         if self.frame_averaging and data is not None:

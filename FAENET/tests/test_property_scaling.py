@@ -92,6 +92,15 @@ class TestPropertyScaling(unittest.TestCase):
                     scaled = batch[prop].cpu().numpy()
                     orig = getattr(batch, f"{prop}_orig").cpu().numpy()
                     
+                    # Handle different tensor shapes
+                    if len(scaled.shape) == 1:
+                        # 1D array (batch_size,)
+                        pass  # No reshaping needed
+                    elif len(scaled.shape) == 2:
+                        # 2D array (batch_size, 1)
+                        scaled = scaled.flatten()
+                        orig = orig.flatten()
+                    
                     # Verify scaled values have approximately mean 0 and std 1
                     if scaled.size > 1:  # Only if we have enough values
                         self.assertAlmostEqual(np.mean(scaled), 0.0, delta=1.0)
@@ -99,7 +108,7 @@ class TestPropertyScaling(unittest.TestCase):
                     
                     # Display sample values for verification
                     for i in range(min(3, len(scaled))):
-                        print(f"{prop} sample {i}: orig={orig[i, 0]:.4f}, scaled={scaled[i, 0]:.4f}")
+                        print(f"{prop} sample {i}: orig={orig[i]:.4f}, scaled={scaled[i]:.4f}")
             
             # Only check the first batch
             break
