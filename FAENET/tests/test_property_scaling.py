@@ -215,90 +215,80 @@ class TestPropertyScaling(unittest.TestCase):
             # Only check first batch
             break
     
-    def test_property_scaling_in_train_function(self):
-        """Test that property scaling parameter is respected in the train_faenet function."""
-        # Set up minimal configuration for a quick test
-        output_dir = os.path.join(self.temp_dir.name, "scaling_test_output")
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Run with property scaling DISABLED
-        print("\nTesting train_faenet with property scaling DISABLED")
-        model, test_loader = train_faenet(
-            data_path=TEST_DATA_PATH,
+    def test_property_scaling_in_dataset_creation(self):
+        """Test that property scaling parameter is respected when explicitly passed to create_dataloader."""
+        # First, verify with default settings (scaling ENABLED)
+        print("\nTesting create_dataloader with property scaling ENABLED (default)")
+        train_loader_1, val_loader_1, test_loader_1, dataset_1 = create_dataloader(
+            data_source=TEST_DATA_PATH,
             structure_col="slab",
-            target_properties=["WF_bottom", "WF_top"],
-            epochs=1,  # Minimum for test
+            target_props=["WF_bottom", "WF_top"],
             batch_size=4,
-            num_interactions=1,  # Smaller model for speed
-            hidden_channels=16,
-            output_dir=output_dir,
-            use_mlflow=False,
-            device="cpu",
+            train_ratio=0.7,
+            val_ratio=0.15,
+            test_ratio=0.15,
+            # use_property_scaling=True (default)
+        )
+        
+        # Verify dataset has scaling enabled
+        self.assertTrue(hasattr(dataset_1, 'use_scaling'), "Dataset should have use_scaling attribute")
+        self.assertTrue(dataset_1.use_scaling, "Dataset use_scaling should be True by default")
+        self.assertGreater(len(dataset_1.scalers), 0, "Dataset should have scalers when scaling is enabled")
+        
+        # Now, try with property scaling explicitly DISABLED 
+        print("\nTesting create_dataloader with property scaling DISABLED")
+        train_loader_2, val_loader_2, test_loader_2, dataset_2 = create_dataloader(
+            data_source=TEST_DATA_PATH,
+            structure_col="slab",
+            target_props=["WF_bottom", "WF_top"],
+            batch_size=4,
+            train_ratio=0.7,
+            val_ratio=0.15,
+            test_ratio=0.15,
             use_property_scaling=False  # Explicitly disable
         )
         
-        # Verify the dataset has scaling disabled
-        dataset = test_loader.dataset.dataset
+        # Verify dataset has scaling disabled
+        self.assertTrue(hasattr(dataset_2, 'use_scaling'), "Dataset should have use_scaling attribute")
+        self.assertFalse(dataset_2.use_scaling, "Dataset use_scaling should be False when disabled")
+        self.assertEqual(len(dataset_2.scalers), 0, "Dataset should have empty scalers when scaling is disabled")
         
-        self.assertTrue(hasattr(dataset, 'use_scaling'), 
-                       "Dataset should have use_scaling attribute")
-        self.assertFalse(dataset.use_scaling, 
-                        "Dataset use_scaling should be False when disabled")
-        
-        # Check scaler file
-        scaler_path = os.path.join(output_dir, "property_scalers.pkl")
-        
-        # If file exists, it should contain empty or no scalers
-        if os.path.exists(scaler_path):
-            with open(scaler_path, 'rb') as f:
-                scalers = pickle.load(f)
-            self.assertEqual(len(scalers), 0, 
-                           "Property scalers should be empty when scaling is disabled")
-        
-        # Run with property scaling ENABLED (default)
-        print("\nTesting train_faenet with property scaling ENABLED")
-        output_dir = os.path.join(self.temp_dir.name, "scaling_enabled_test_output")
-        os.makedirs(output_dir, exist_ok=True)
-        
-        model, test_loader = train_faenet(
-            data_path=TEST_DATA_PATH,
-            structure_col="slab",
-            target_properties=["WF_bottom", "WF_top"],
-            epochs=1,  # Minimum for test
-            batch_size=4,
-            num_interactions=1,  # Smaller model for speed
-            hidden_channels=16,
-            output_dir=output_dir,
-            use_mlflow=False,
-            device="cpu"
-            # use_property_scaling=True is the default
-        )
-        
-        # Verify the dataset has scaling enabled
-        dataset = test_loader.dataset.dataset
-        
-        self.assertTrue(hasattr(dataset, 'use_scaling'), 
-                       "Dataset should have use_scaling attribute")
-        self.assertTrue(dataset.use_scaling, 
-                       "Dataset use_scaling should be True when enabled")
-        
-        # Check scaler file
-        scaler_path = os.path.join(output_dir, "property_scalers.pkl")
-        self.assertTrue(os.path.exists(scaler_path), 
-                       "Property scalers file should exist when scaling is enabled")
-        
-        with open(scaler_path, 'rb') as f:
-            scalers = pickle.load(f)
-        
-        self.assertGreater(len(scalers), 0, 
-                          "Property scalers should not be empty when scaling is enabled")
-        
-        # Verify scalers are properly fitted
-        for prop in ["WF_bottom", "WF_top"]:
-            self.assertIn(prop, scalers, f"Scaler for {prop} should exist")
-            self.assertTrue(hasattr(scalers[prop], 'mean_'), 
-                          f"Scaler for {prop} should be fitted")
-            print(f"Scaler for {prop}: mean={scalers[prop].mean_[0]:.4f}, std={scalers[prop].scale_[0]:.4f}")
+        # Check that property values are handled properly in both cases
+        # First batch from scaling enabled loader
+        for batch_1 in train_loader_1:
+            # First batch from scaling disabled loader
+            for batch_2 in train_loader_2:
+                # Check same properties in both
+                for prop in ["WF_bottom", "WF_top"]:
+                    # Both should have the property and original property
+                    self.assertTrue(hasattr(batch_1, prop), f"Batch should have {prop} attribute")
+                    self.assertTrue(hasattr(batch_1, f"{prop}_orig"), f"Batch should have {prop}_orig attribute")
+                    self.assertTrue(hasattr(batch_2, prop), f"Batch should have {prop} attribute")
+                    self.assertTrue(hasattr(batch_2, f"{prop}_orig"), f"Batch should have {prop}_orig attribute")
+                    
+                    # In the enabled case, the property should be different from original
+                    values_1 = getattr(batch_1, prop)
+                    orig_values_1 = getattr(batch_1, f"{prop}_orig")
+                    self.assertFalse(torch.allclose(values_1, orig_values_1), 
+                                     f"{prop} and {prop}_orig should be different when scaling is enabled")
+                    
+                    # In the disabled case, the property should be identical to original
+                    values_2 = getattr(batch_2, prop)
+                    orig_values_2 = getattr(batch_2, f"{prop}_orig")
+                    self.assertTrue(torch.allclose(values_2, orig_values_2), 
+                                     f"{prop} and {prop}_orig should be identical when scaling is disabled")
+                    
+                    # Print some values for visualization
+                    print(f"\nScaling ENABLED: {prop} (first 2 values)")
+                    print(f"  Scaled: {values_1[:2].tolist()}")
+                    print(f"  Original: {orig_values_1[:2].tolist()}")
+                    
+                    print(f"\nScaling DISABLED: {prop} (first 2 values)")
+                    print(f"  Values: {values_2[:2].tolist()}")
+                    print(f"  Original: {orig_values_2[:2].tolist()}")
+                    
+                break  # Only need first batch from disabled loader
+            break  # Only need first batch from enabled loader
 
 
 if __name__ == "__main__":

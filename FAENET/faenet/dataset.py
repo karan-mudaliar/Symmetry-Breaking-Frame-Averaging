@@ -321,6 +321,19 @@ def create_dataloader(
     # Check if we should apply property scaling
     use_scaling = kwargs.get('use_property_scaling', True)
     
+    # Ensure use_scaling is properly passed from parent function
+    if 'use_property_scaling' in kwargs:
+        use_scaling = kwargs['use_property_scaling']
+    
+    # Store scaling setting on dataset
+    dataset.use_scaling = use_scaling
+    
+    # Log scaling setting
+    if use_scaling:
+        logger.info("property_scaling_enabled")
+    else:
+        logger.info("property_scaling_disabled")
+    
     # Create property scalers using training data if scaling is enabled
     if isinstance(target_props, list) and len(target_props) > 0 and use_scaling:
         scalers = {}
@@ -352,22 +365,16 @@ def create_dataloader(
                 scalers[prop] = scaler
                 
                 # Log mean and std for each property
-                logger.info("property_scaled", 
+                logger.info("property_scaler_fitted", 
                           property=prop, 
                           mean=float(scaler.mean_[0]), 
                           std=float(scaler.scale_[0]))
         
         # Store scalers on dataset for later use
         dataset.scalers = scalers
-        dataset.use_scaling = True
-        logger.info("property_scaling_enabled")
     else:
+        # Empty scalers dictionary when scaling is disabled
         dataset.scalers = {}
-        dataset.use_scaling = False
-        if not use_scaling:
-            logger.info("property_scaling_disabled")
-        elif not isinstance(target_props, list) or len(target_props) == 0:
-            logger.info("property_scaling_disabled", reason="No target properties specified")
     
     # Create subset datasets
     train_dataset = Subset(dataset, train_indices)
