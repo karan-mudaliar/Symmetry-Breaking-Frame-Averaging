@@ -714,9 +714,13 @@ def train_faenet(
     # Create config from parameters
     config = Config(**config_params)
     
-    # Create dataset
+    # Create dataset and dataloaders with property scaling
     logger.info("loading_dataset", data_path=str(data_path))
-    dataset = SlabDataset(
+    
+    # Use the enhanced dataloader creation function that handles property scaling
+    from faenet.dataset import create_dataloader
+    
+    train_loader, val_loader, test_loader, dataset = create_dataloader(
         data_source=data_path,
         structure_col=structure_col,
         target_props=target_properties,
@@ -724,40 +728,20 @@ def train_faenet(
         max_neighbors=max_neighbors,
         pbc=pbc,
         frame_averaging=frame_averaging,
-        fa_method=fa_method
-    )
-    
-    # Split into train, validation, and test sets
-    test_size = int(len(dataset) * test_ratio)
-    val_size = int(len(dataset) * val_ratio)
-    train_size = len(dataset) - val_size - test_size
-    
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset, [train_size, val_size, test_size],
-        generator=torch.Generator().manual_seed(seed)
-    )
-    
-    # Create data loaders
-    train_loader = DataLoader(
-        train_dataset,
+        fa_method=fa_method,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers
+        num_workers=num_workers,
+        train_ratio=1 - val_ratio - test_ratio,
+        val_ratio=val_ratio,
+        test_ratio=test_ratio,
+        seed=seed
     )
     
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers
-    )
-    
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers
-    )
+    # Get dataset sizes for logging
+    train_size = len(train_loader.dataset)
+    val_size = len(val_loader.dataset)
+    test_size = len(test_loader.dataset)
     
     # Determine output properties from target_properties
     if isinstance(target_properties, list):
