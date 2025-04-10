@@ -466,32 +466,86 @@ class TestTraining(unittest.TestCase):
             # Verify predictions
             self.assertGreater(len(predictions), 0, "Should have at least one prediction")
             
-            # Check for presence of original (unscaled) values
+            # Check that we have predictions from all three datasets
+            datasets = [p.get("dataset", "unknown") for p in predictions]
+            unique_datasets = set(datasets)
+            
+            print(f"Found {len(predictions)} total predictions across {len(unique_datasets)} datasets")
+            for dataset in unique_datasets:
+                count = datasets.count(dataset)
+                print(f"  {dataset}: {count} predictions")
+            
+            # Verify all three datasets are represented
+            self.assertIn("train", unique_datasets, "Should have predictions from training set")
+            self.assertIn("val", unique_datasets, "Should have predictions from validation set")
+            self.assertIn("test", unique_datasets, "Should have predictions from test set")
+            
+            # Get a sample prediction to check fields
+            sample_pred = predictions[0]
+            
+            # Check prediction keys 
             prop = config.target_properties[0]  # Use the first property as an example
+            expected_keys = [
+                prop,               # Unscaled prediction
+                f"{prop}_scaled",   # Scaled prediction
+                f"{prop}_true",     # Unscaled ground truth
+                f"{prop}_true_scaled"  # Scaled ground truth
+            ]
             
-            # Calculate statistics of predictions to see if they're in original scale
-            pred_values = [p[prop] for p in predictions]
-            print(f"Prediction statistics for {prop}:")
-            print(f"  Min: {min(pred_values):.4f}, Max: {max(pred_values):.4f}")
-            print(f"  Mean: {np.mean(pred_values):.4f}, Std: {np.std(pred_values):.4f}")
+            for key in expected_keys:
+                self.assertIn(key, sample_pred, f"Prediction should contain {key}")
             
-            # The statistics should roughly match the original data scale, not standardized scale
-            # (standardized data would have mean near 0 and std near 1)
-            if np.mean(pred_values) > 0.5:  # Basic check that it's not standardized
-                print(f"✅ Predictions appear to be in original scale")
-            else:
-                print(f"⚠️ Predictions may still be in standardized scale")
+            # Print example values from one prediction for verification
+            print(f"\nSample prediction values for property {prop}:")
+            print(f"  Unscaled prediction: {sample_pred[prop]:.4f}")
+            print(f"  Scaled prediction: {sample_pred[f'{prop}_scaled']:.4f}")
+            print(f"  Unscaled ground truth: {sample_pred[f'{prop}_true']:.4f}")
+            print(f"  Scaled ground truth: {sample_pred[f'{prop}_true_scaled']:.4f}")
+            
+            # Verify scaled and unscaled values are different
+            self.assertNotEqual(sample_pred[prop], sample_pred[f"{prop}_scaled"],
+                               "Scaled and unscaled predictions should be different")
+            self.assertNotEqual(sample_pred[f"{prop}_true"], sample_pred[f"{prop}_true_scaled"],
+                               "Scaled and unscaled ground truth should be different")
+            
+            # Verify scaling by checking statistics
+            # Extract all values
+            unscaled_preds = [p[prop] for p in predictions]
+            scaled_preds = [p[f"{prop}_scaled"] for p in predictions]
+            unscaled_truths = [p[f"{prop}_true"] for p in predictions]
+            scaled_truths = [p[f"{prop}_true_scaled"] for p in predictions]
+            
+            # Print statistics
+            print(f"\nStatistics for {prop}:")
+            print(f"  Unscaled predictions - Mean: {np.mean(unscaled_preds):.4f}, Std: {np.std(unscaled_preds):.4f}")
+            print(f"  Scaled predictions   - Mean: {np.mean(scaled_preds):.4f}, Std: {np.std(scaled_preds):.4f}")
+            print(f"  Unscaled truth       - Mean: {np.mean(unscaled_truths):.4f}, Std: {np.std(unscaled_truths):.4f}")
+            print(f"  Scaled truth         - Mean: {np.mean(scaled_truths):.4f}, Std: {np.std(scaled_truths):.4f}")
+            
+            # Verify the basic properties of standardization:
+            # 1. Scaled values should have mean closer to 0 and std closer to 1 compared to unscaled
+            # 2. abs(mean) of scaled values should be smaller than abs(mean) of unscaled
+            # For predictions:
+            self.assertLess(abs(np.mean(scaled_preds)), abs(np.mean(unscaled_preds)),
+                           "Scaled predictions should have mean closer to 0")
+            
+            # For ground truth:
+            self.assertLess(abs(np.mean(scaled_truths)), abs(np.mean(unscaled_truths)),
+                           "Scaled ground truth should have mean closer to 0")
+            
+            # Verify predictions are stored for all datasets (train, val, test)
+            for dataset_type in ["train", "val", "test"]:
+                dataset_preds = [p for p in predictions if p.get("dataset") == dataset_type]
+                self.assertGreater(len(dataset_preds), 0, 
+                                  f"Should have predictions for {dataset_type} dataset")
                 
-            # If scaled versions are also included, verify they're different
-            if f"{prop}_scaled" in predictions[0]:
-                scaled_values = [p[f"{prop}_scaled"] for p in predictions]
-                print(f"Scaled prediction statistics for {prop}_scaled:")
-                print(f"  Min: {min(scaled_values):.4f}, Max: {max(scaled_values):.4f}")
-                print(f"  Mean: {np.mean(scaled_values):.4f}, Std: {np.std(scaled_values):.4f}")
-                
-                # Verify differences between original and scaled
-                self.assertNotEqual(pred_values, scaled_values, 
-                                  "Scaled and unscaled values should be different")
+                sample = dataset_preds[0]
+                print(f"\nSample {dataset_type} prediction:")
+                print(f"  ID: {sample['jid']}")
+                print(f"  {prop}: {sample[prop]:.4f} (unscaled)")
+                print(f"  {prop}_scaled: {sample[f'{prop}_scaled']:.4f}")
+                print(f"  {prop}_true: {sample[f'{prop}_true']:.4f} (unscaled)")
+                print(f"  {prop}_true_scaled: {sample[f'{prop}_true_scaled']:.4f}")
             
         except Exception as e:
             self.fail(f"Training with property scaling failed: {e}")

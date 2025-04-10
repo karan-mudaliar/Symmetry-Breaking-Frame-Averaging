@@ -5,6 +5,7 @@ import torch.optim as optim
 from torch_geometric.loader import DataLoader
 import numpy as np
 import pickle
+import json
 from tqdm import tqdm
 from torch.utils.data import random_split
 import structlog
@@ -401,7 +402,7 @@ def train(model, train_loader, val_loader, device, config):
         }, os.path.join(output_dir, "checkpoint.pt"))
 
 
-def run_inference(model, data_loader, device, config, output_file):
+def run_inference(model, data_loader, device, config, output_file, dataset_type="test", append=False):
     """Run inference on a dataset and save predictions
     
     Args:
@@ -410,14 +411,26 @@ def run_inference(model, data_loader, device, config, output_file):
         device: Device to run on
         config: Configuration object
         output_file: File to save predictions to
+        dataset_type: Type of dataset ("train", "val", "test")
+        append: Whether to append to existing file (if it exists)
     """
     model.eval()
     
     # Store predictions and file identifiers
     results = []
     
+    # Load existing results if appending
+    if append and os.path.exists(output_file):
+        try:
+            with open(output_file, 'r') as f:
+                results = json.load(f)
+            logger.info("loaded_existing_predictions", count=len(results))
+        except Exception as e:
+            logger.warning("error_loading_existing_predictions", error=str(e))
+            results = []
+    
     with torch.no_grad():
-        for batch_idx, batch in enumerate(tqdm(data_loader, desc="Running inference")):
+        for batch_idx, batch in enumerate(tqdm(data_loader, desc=f"Running inference on {dataset_type} set")):
             batch = batch.to(device)
             
             # Get unique identifiers for each structure in batch
@@ -482,56 +495,67 @@ def run_inference(model, data_loader, device, config, output_file):
                 if hasattr(batch, 'cell') and batch.cell is not None:
                     batch.cell = original_cell
                 
-                # Average predictions across frames and inverse transform if needed
+                # Average predictions across frames (keep both scaled and unscaled)
                 final_preds = {}
                 for prop in model.output_properties:
                     # Average scaled predictions
                     avg_pred = (sum(e_all[prop]) / len(e_all[prop])).cpu().numpy()
-                    final_preds[prop] = avg_pred
+                    # Store scaled predictions
+                    final_preds[f"{prop}_scaled"] = avg_pred.copy()
                     
                     # Apply inverse transform if scaler is available
                     if hasattr(data_loader.dataset.dataset, 'scalers') and prop in data_loader.dataset.dataset.scalers:
                         scaler = data_loader.dataset.dataset.scalers[prop]
-                        # Store original scaled predictions
-                        final_preds[f"{prop}_scaled"] = avg_pred.copy()
-                        # Apply inverse transform
+                        unscaled_pred = avg_pred.copy()
                         try:
-                            for i in range(len(avg_pred)):
-                                for j in range(len(avg_pred[i])):
-                                    avg_pred[i][j] = scaler.inverse_transform([[avg_pred[i][j]]])[0][0]
-                            final_preds[prop] = avg_pred
+                            for i in range(len(unscaled_pred)):
+                                for j in range(len(unscaled_pred[i])):
+                                    unscaled_pred[i][j] = scaler.inverse_transform([[unscaled_pred[i][j]]])[0][0]
+                            final_preds[prop] = unscaled_pred
                             logger.debug("inverse_transform_applied", property=prop)
                         except Exception as e:
                             logger.warning("inverse_transform_error", property=prop, error=str(e))
+                            # If inverse transform fails, use scaled predictions
+                            final_preds[prop] = avg_pred.copy()
+                    else:
+                        # If no scaler, use scaled predictions as is
+                        final_preds[prop] = avg_pred.copy()
             else:
                 # Standard forward pass
                 preds = model(batch)
                 
-                # Convert predictions to numpy and inverse transform if needed
+                # Convert predictions to numpy (keep both scaled and unscaled)
                 final_preds = {}
                 for prop in model.output_properties:
                     # Get scaled predictions
                     pred = preds[prop].cpu().numpy()
-                    final_preds[prop] = pred
+                    # Store scaled predictions
+                    final_preds[f"{prop}_scaled"] = pred.copy()
                     
                     # Apply inverse transform if scaler is available
                     if hasattr(data_loader.dataset.dataset, 'scalers') and prop in data_loader.dataset.dataset.scalers:
                         scaler = data_loader.dataset.dataset.scalers[prop]
-                        # Store original scaled predictions
-                        final_preds[f"{prop}_scaled"] = pred.copy()
-                        # Apply inverse transform
+                        unscaled_pred = pred.copy()
                         try:
-                            for i in range(len(pred)):
-                                for j in range(len(pred[i])):
-                                    pred[i][j] = scaler.inverse_transform([[pred[i][j]]])[0][0]
-                            final_preds[prop] = pred
+                            for i in range(len(unscaled_pred)):
+                                for j in range(len(unscaled_pred[i])):
+                                    unscaled_pred[i][j] = scaler.inverse_transform([[unscaled_pred[i][j]]])[0][0]
+                            final_preds[prop] = unscaled_pred
                             logger.debug("inverse_transform_applied", property=prop)
                         except Exception as e:
                             logger.warning("inverse_transform_error", property=prop, error=str(e))
+                            # If inverse transform fails, use scaled predictions
+                            final_preds[prop] = pred.copy()
+                    else:
+                        # If no scaler, use scaled predictions as is
+                        final_preds[prop] = pred.copy()
             
             # Store predictions for each file
             for i, identifier in enumerate(unique_identifiers):
-                result = {"jid": identifier}
+                result = {
+                    "jid": identifier,
+                    "dataset": dataset_type  # Add dataset type label
+                }
                 
                 # Add predictions
                 for prop in final_preds:
@@ -543,16 +567,51 @@ def run_inference(model, data_loader, device, config, output_file):
                     if hasattr(batch, prop):
                         # Handle different tensor shapes correctly
                         target_tensor = getattr(batch, prop)
+                        
+                        # Get scaled ground truth
                         if target_tensor.dim() == 0:
                             # 0-dim tensor
-                            result[f"{prop}_true"] = float(target_tensor.item())
+                            scaled_value = float(target_tensor.item())
                         elif target_tensor.dim() == 1:
                             # 1-dim tensor
-                            result[f"{prop}_true"] = float(target_tensor[i].item())
+                            scaled_value = float(target_tensor[i].item())
                         else:
                             # 2-dim or higher tensor
-                            result[f"{prop}_true"] = float(target_tensor[i][0].cpu().numpy())
-                
+                            scaled_value = float(target_tensor[i][0].cpu().numpy())
+                        
+                        # Store scaled ground truth
+                        result[f"{prop}_true_scaled"] = scaled_value
+                        
+                        # Get original (unscaled) ground truth if available
+                        if hasattr(batch, f"{prop}_orig"):
+                            orig_tensor = getattr(batch, f"{prop}_orig")
+                            
+                            if orig_tensor.dim() == 0:
+                                # 0-dim tensor
+                                unscaled_value = float(orig_tensor.item())
+                            elif orig_tensor.dim() == 1:
+                                # 1-dim tensor
+                                unscaled_value = float(orig_tensor[i].item())
+                            else:
+                                # 2-dim or higher tensor
+                                unscaled_value = float(orig_tensor[i][0].cpu().numpy())
+                                
+                            # Store unscaled ground truth
+                            result[f"{prop}_true"] = unscaled_value
+                        else:
+                            # If original values aren't available, try to inverse transform
+                            if hasattr(data_loader.dataset.dataset, 'scalers') and prop in data_loader.dataset.dataset.scalers:
+                                scaler = data_loader.dataset.dataset.scalers[prop]
+                                try:
+                                    unscaled_value = float(scaler.inverse_transform([[scaled_value]])[0][0])
+                                    result[f"{prop}_true"] = unscaled_value
+                                except Exception as e:
+                                    logger.warning("inverse_transform_error_gt", property=prop, error=str(e))
+                                    # If inverse transform fails, use scaled value
+                                    result[f"{prop}_true"] = scaled_value
+                            else:
+                                # If no scaler, use scaled value as unscaled
+                                result[f"{prop}_true"] = scaled_value
                 
                 results.append(result)
     
@@ -568,6 +627,7 @@ def run_inference(model, data_loader, device, config, output_file):
     logger.info("inference_results_saved", 
                count=len(results), 
                output_file=output_file,
+               dataset_type=dataset_type,
                identifier_type=id_type,
                includes_flipped_status=has_flipped)
 
@@ -971,9 +1031,37 @@ def train_faenet(
         model.load_state_dict(torch.load(best_model_path, map_location=device))
         logger.info("best_model_loaded", path=best_model_path)
     
-    # Run inference on test set
+    # Run inference on all datasets (train, validation, test)
     inference_output = os.path.join(output_dir, "predictions.json")
-    run_inference(model, test_loader, device, config, inference_output)
+    
+    # First run inference on train set
+    logger.info("running_inference_on_train_set")
+    run_inference(model, train_loader, device, config, inference_output, dataset_type="train", append=False)
+    
+    # Then run inference on validation set
+    logger.info("running_inference_on_validation_set")
+    run_inference(model, val_loader, device, config, inference_output, dataset_type="val", append=True)
+    
+    # Finally run inference on test set
+    logger.info("running_inference_on_test_set")
+    run_inference(model, test_loader, device, config, inference_output, dataset_type="test", append=True)
+    
+    # Log total predictions count
+    try:
+        with open(inference_output, 'r') as f:
+            results = json.load(f)
+            train_count = sum(1 for r in results if r.get('dataset') == 'train')
+            val_count = sum(1 for r in results if r.get('dataset') == 'val')
+            test_count = sum(1 for r in results if r.get('dataset') == 'test')
+            
+            logger.info("all_predictions_saved",
+                       total_count=len(results),
+                       train_count=train_count,
+                       val_count=val_count,
+                       test_count=test_count,
+                       output_file=inference_output)
+    except Exception as e:
+        logger.warning("error_counting_predictions", error=str(e))
     
     return model, test_loader
 
