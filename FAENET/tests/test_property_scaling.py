@@ -44,8 +44,8 @@ class TestPropertyScaling(unittest.TestCase):
         self.temp_dir.cleanup()
     
     def test_property_scaling_in_dataset(self):
-        """Test that properties are properly scaled in the dataset."""
-        # Create dataloader with property scaling
+        """Test that properties are properly scaled in the dataset when scaling is enabled."""
+        # Create dataloader with property scaling explicitly enabled
         train_loader, val_loader, test_loader, dataset = create_dataloader(
             data_source=TEST_DATA_PATH,
             structure_col="slab",
@@ -53,7 +53,8 @@ class TestPropertyScaling(unittest.TestCase):
             batch_size=4,
             train_ratio=0.7,
             val_ratio=0.15,
-            test_ratio=0.15
+            test_ratio=0.15,
+            use_property_scaling=True  # Explicitly enable scaling
         )
         
         # Check that scalers were created
@@ -69,8 +70,8 @@ class TestPropertyScaling(unittest.TestCase):
             print(f"Property {prop}: mean={scaler.mean_[0]:.4f}, std={scaler.scale_[0]:.4f}")
     
     def test_scaled_values_in_batch(self):
-        """Test that scaled values are included in the batch."""
-        # Create dataloader with property scaling
+        """Test that scaled values are included in the batch when scaling is enabled."""
+        # Create dataloader with property scaling explicitly enabled
         train_loader, val_loader, test_loader, dataset = create_dataloader(
             data_source=TEST_DATA_PATH,
             structure_col="slab",
@@ -78,7 +79,8 @@ class TestPropertyScaling(unittest.TestCase):
             batch_size=4,
             train_ratio=0.7,
             val_ratio=0.15,
-            test_ratio=0.15
+            test_ratio=0.15,
+            use_property_scaling=True  # Explicitly enable scaling
         )
         
         # Get a batch of data
@@ -116,8 +118,8 @@ class TestPropertyScaling(unittest.TestCase):
             break
     
     def test_saving_and_loading_scalers(self):
-        """Test saving and loading scalers works correctly."""
-        # Create dataloader with property scaling
+        """Test saving and loading scalers works correctly when scaling is enabled."""
+        # Create dataloader with property scaling explicitly enabled
         train_loader, val_loader, test_loader, dataset = create_dataloader(
             data_source=TEST_DATA_PATH,
             structure_col="slab",
@@ -125,7 +127,8 @@ class TestPropertyScaling(unittest.TestCase):
             batch_size=4,
             train_ratio=0.7,
             val_ratio=0.15,
-            test_ratio=0.15
+            test_ratio=0.15,
+            use_property_scaling=True  # Explicitly enable scaling
         )
         
         # Save scalers to temporary file
@@ -163,8 +166,8 @@ class TestPropertyScaling(unittest.TestCase):
                                   msg=f"Inverse transform for {prop} should match after loading")
     
     def test_optional_property_scaling(self):
-        """Test that property scaling can be disabled."""
-        # Create dataloader WITHOUT property scaling
+        """Test that property scaling can be enabled when needed."""
+        # Create dataloader WITH property scaling (overriding default)
         train_loader, val_loader, test_loader, dataset = create_dataloader(
             data_source=TEST_DATA_PATH,
             structure_col="slab",
@@ -173,18 +176,18 @@ class TestPropertyScaling(unittest.TestCase):
             train_ratio=0.7,
             val_ratio=0.15,
             test_ratio=0.15,
-            use_property_scaling=False  # Disable property scaling
+            use_property_scaling=True  # Enable property scaling
         )
         
-        # Check that scalers were not created or are empty
+        # Check that scalers were created
         self.assertTrue(hasattr(dataset, 'scalers'), "Dataset should have scalers attribute")
-        self.assertEqual(len(dataset.scalers), 0, "Dataset should have no scalers when scaling is disabled")
+        self.assertGreater(len(dataset.scalers), 0, "Dataset should have scalers when scaling is enabled")
         
         # Verify we're keeping track of the scaling decision
         self.assertTrue(hasattr(dataset, 'use_scaling'), "Dataset should track scaling decision")
-        self.assertFalse(dataset.use_scaling, "use_scaling should be False when disabled")
+        self.assertTrue(dataset.use_scaling, "use_scaling should be True when enabled")
         
-        # Check that original values are passed directly
+        # Check that values are scaled
         for batch in train_loader:
             for prop in ["WF_bottom", "WF_top"]:
                 # Should have both the main property and the original property
@@ -195,30 +198,30 @@ class TestPropertyScaling(unittest.TestCase):
                 values = getattr(batch, prop)
                 orig_values = getattr(batch, f"{prop}_orig")
                 
-                # They should be identical since scaling is disabled
-                self.assertTrue(torch.allclose(values, orig_values), 
-                               f"{prop} and {prop}_orig should be identical when scaling is disabled")
+                # They should be different since scaling is enabled
+                self.assertFalse(torch.allclose(values, orig_values), 
+                               f"{prop} and {prop}_orig should be different when scaling is enabled")
                 
-                print(f"Property {prop}: {values}")
+                print(f"Property {prop} (scaled): {values}")
                 print(f"Original {prop}: {orig_values}")
                 
-                # With scaling disabled, mean and std should reflect original data
+                # With scaling enabled, mean and std should be close to 0 and 1
                 if values.shape[0] > 1:
                     mean = torch.mean(values).item()
                     std = torch.std(values).item()
                     print(f"{prop} statistics - Mean: {mean:.4f}, Std: {std:.4f}")
                     
-                    # These should NOT be near 0 and 1 since scaling is disabled
-                    self.assertNotAlmostEqual(mean, 0.0, delta=0.5, 
-                                             msg=f"Mean of unscaled {prop} should NOT be near 0")
+                    # These should be near 0 and 1 since scaling is enabled
+                    self.assertAlmostEqual(mean, 0.0, delta=0.5, 
+                                         msg=f"Mean of scaled {prop} should be near 0")
             
             # Only check first batch
             break
     
     def test_property_scaling_in_dataset_creation(self):
         """Test that property scaling parameter is respected when explicitly passed to create_dataloader."""
-        # First, verify with default settings (scaling ENABLED)
-        print("\nTesting create_dataloader with property scaling ENABLED (default)")
+        # First, verify with default settings (scaling DISABLED by default)
+        print("\nTesting create_dataloader with property scaling DISABLED (default)")
         train_loader_1, val_loader_1, test_loader_1, dataset_1 = create_dataloader(
             data_source=TEST_DATA_PATH,
             structure_col="slab",
@@ -227,16 +230,16 @@ class TestPropertyScaling(unittest.TestCase):
             train_ratio=0.7,
             val_ratio=0.15,
             test_ratio=0.15,
-            # use_property_scaling=True (default)
+            # use_property_scaling=False (default)
         )
         
-        # Verify dataset has scaling enabled
+        # Verify dataset has scaling disabled by default
         self.assertTrue(hasattr(dataset_1, 'use_scaling'), "Dataset should have use_scaling attribute")
-        self.assertTrue(dataset_1.use_scaling, "Dataset use_scaling should be True by default")
-        self.assertGreater(len(dataset_1.scalers), 0, "Dataset should have scalers when scaling is enabled")
+        self.assertFalse(dataset_1.use_scaling, "Dataset use_scaling should be False by default")
+        self.assertEqual(len(dataset_1.scalers), 0, "Dataset should have empty scalers by default when scaling is disabled")
         
-        # Now, try with property scaling explicitly DISABLED 
-        print("\nTesting create_dataloader with property scaling DISABLED")
+        # Now, try with property scaling explicitly ENABLED
+        print("\nTesting create_dataloader with property scaling ENABLED")
         train_loader_2, val_loader_2, test_loader_2, dataset_2 = create_dataloader(
             data_source=TEST_DATA_PATH,
             structure_col="slab",
@@ -245,18 +248,18 @@ class TestPropertyScaling(unittest.TestCase):
             train_ratio=0.7,
             val_ratio=0.15,
             test_ratio=0.15,
-            use_property_scaling=False  # Explicitly disable
+            use_property_scaling=True  # Explicitly enable
         )
         
-        # Verify dataset has scaling disabled
+        # Verify dataset has scaling enabled when explicitly requested
         self.assertTrue(hasattr(dataset_2, 'use_scaling'), "Dataset should have use_scaling attribute")
-        self.assertFalse(dataset_2.use_scaling, "Dataset use_scaling should be False when disabled")
-        self.assertEqual(len(dataset_2.scalers), 0, "Dataset should have empty scalers when scaling is disabled")
+        self.assertTrue(dataset_2.use_scaling, "Dataset use_scaling should be True when explicitly enabled")
+        self.assertGreater(len(dataset_2.scalers), 0, "Dataset should have scalers when scaling is enabled")
         
         # Check that property values are handled properly in both cases
-        # First batch from scaling enabled loader
+        # First batch from scaling disabled (default) loader
         for batch_1 in train_loader_1:
-            # First batch from scaling disabled loader
+            # First batch from scaling enabled loader
             for batch_2 in train_loader_2:
                 # Check same properties in both
                 for prop in ["WF_bottom", "WF_top"]:
@@ -266,29 +269,29 @@ class TestPropertyScaling(unittest.TestCase):
                     self.assertTrue(hasattr(batch_2, prop), f"Batch should have {prop} attribute")
                     self.assertTrue(hasattr(batch_2, f"{prop}_orig"), f"Batch should have {prop}_orig attribute")
                     
-                    # In the enabled case, the property should be different from original
+                    # In the disabled case (default), the property should be identical to original
                     values_1 = getattr(batch_1, prop)
                     orig_values_1 = getattr(batch_1, f"{prop}_orig")
-                    self.assertFalse(torch.allclose(values_1, orig_values_1), 
-                                     f"{prop} and {prop}_orig should be different when scaling is enabled")
+                    self.assertTrue(torch.allclose(values_1, orig_values_1), 
+                                   f"{prop} and {prop}_orig should be identical when scaling is disabled (default)")
                     
-                    # In the disabled case, the property should be identical to original
+                    # In the explicitly enabled case, the property should be different from original
                     values_2 = getattr(batch_2, prop)
                     orig_values_2 = getattr(batch_2, f"{prop}_orig")
-                    self.assertTrue(torch.allclose(values_2, orig_values_2), 
-                                     f"{prop} and {prop}_orig should be identical when scaling is disabled")
+                    self.assertFalse(torch.allclose(values_2, orig_values_2), 
+                                    f"{prop} and {prop}_orig should be different when scaling is enabled")
                     
                     # Print some values for visualization
-                    print(f"\nScaling ENABLED: {prop} (first 2 values)")
-                    print(f"  Scaled: {values_1[:2].tolist()}")
+                    print(f"\nScaling DISABLED (default): {prop} (first 2 values)")
+                    print(f"  Values: {values_1[:2].tolist()}")
                     print(f"  Original: {orig_values_1[:2].tolist()}")
                     
-                    print(f"\nScaling DISABLED: {prop} (first 2 values)")
-                    print(f"  Values: {values_2[:2].tolist()}")
+                    print(f"\nScaling ENABLED: {prop} (first 2 values)")
+                    print(f"  Scaled: {values_2[:2].tolist()}")
                     print(f"  Original: {orig_values_2[:2].tolist()}")
                     
-                break  # Only need first batch from disabled loader
-            break  # Only need first batch from enabled loader
+                break  # Only need first batch from enabled loader
+            break  # Only need first batch from disabled loader
 
 
 if __name__ == "__main__":

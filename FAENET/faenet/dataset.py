@@ -255,15 +255,17 @@ def create_dataloader(
     val_ratio=0.1,
     test_ratio=0.1,
     seed=42,
-    use_property_scaling=True,
+    use_property_scaling=False,
     **kwargs
 ):
     """Create train, validation, and test dataloaders with optional property scaling.
     
     This function:
     1. Creates a dataset with the given parameters
-    2. Fits property scalers on the training split if scaling is enabled
+    2. Fits property scalers on the training split if scaling is enabled (off by default)
     3. Returns dataloaders for train/val/test splits
+    
+    Property scaling is disabled by default. Set use_property_scaling=True to enable.
     
     Args:
         data_source: Path to data file or directory
@@ -318,8 +320,8 @@ def create_dataloader(
     val_indices = indices[n_train:n_train+n_val]
     test_indices = indices[n_train+n_val:]
     
-    # Check if we should apply property scaling
-    use_scaling = kwargs.get('use_property_scaling', True)
+    # Check if we should apply property scaling (default to False)
+    use_scaling = kwargs.get('use_property_scaling', False)
     
     # Ensure use_scaling is properly passed from parent function
     if 'use_property_scaling' in kwargs:
