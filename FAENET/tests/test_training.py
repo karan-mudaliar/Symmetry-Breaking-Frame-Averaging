@@ -294,7 +294,6 @@ class TestTraining(unittest.TestCase):
             num_filters=64,     # Reduced for faster training
             num_interactions=2,  # Reduced for faster training
             dropout=0.0,
-            output_properties=["WF_top", "WF_bottom"],
             
             # Training parameters
             batch_size=4,
@@ -359,6 +358,143 @@ class TestTraining(unittest.TestCase):
             
         except Exception as e:
             self.fail(f"Training failed with error: {e}")
+    
+    def test_training_with_property_scaling(self):
+        """Test property scaling during training process"""
+        if not self.test_data_exists:
+            self.skipTest("Test data file not found")
+            
+        print("=== Testing FAENet Training with Property Scaling ===")
+        
+        # Set up configuration with same parameters as basic training
+        config = Config(
+            # Model parameters
+            cutoff=6.0,
+            max_neighbors=40,
+            num_gaussians=25,
+            hidden_channels=64,
+            num_filters=64,
+            num_interactions=2,
+            dropout=0.0,
+            
+            # Training parameters
+            batch_size=4,
+            epochs=1,  # Minimal for quick testing
+            learning_rate=0.001,
+            weight_decay=1e-5,
+            train_ratio=0.7,
+            val_ratio=0.15,
+            test_ratio=0.15,
+            frame_averaging="2D",
+            fa_method="all",
+            
+            # MLflow settings (disable for test)
+            use_mlflow=False,
+            seed=42,
+            num_workers=0,
+            
+            # Data parameters
+            data_path=TEST_DATA_PATH,
+            structure_col="slab",
+            target_properties=["WF_top", "WF_bottom"],  # Focus on just two properties for simplicity
+            pbc=True,
+            
+            # General parameters
+            output_dir=self.output_dir / "property_scaling_test",
+            device="cpu"
+        )
+        
+        # Ensure output directory exists
+        os.makedirs(config.output_dir, exist_ok=True)
+        
+        # Run training
+        try:
+            import pickle
+            import json
+            import numpy as np
+            
+            print("Starting training with property scaling...")
+            model, test_loader = train_faenet(
+                data_path=config.data_path,
+                structure_col=config.structure_col,
+                target_properties=config.target_properties,
+                output_dir=config.output_dir,
+                frame_averaging=config.frame_averaging,
+                fa_method=config.fa_method,
+                cutoff=config.cutoff,
+                max_neighbors=config.max_neighbors,
+                batch_size=config.batch_size,
+                epochs=config.epochs,
+                learning_rate=config.learning_rate,
+                seed=config.seed,
+                device=config.device,
+                num_workers=config.num_workers,
+                num_gaussians=config.num_gaussians,
+                hidden_channels=config.hidden_channels,
+                num_filters=config.num_filters,
+                num_interactions=config.num_interactions,
+                dropout=config.dropout
+            )
+            
+            print("✅ Training with property scaling completed!")
+            
+            # Verify property scalers were saved
+            scaler_path = os.path.join(config.output_dir, "property_scalers.pkl")
+            self.assertTrue(os.path.exists(scaler_path), 
+                           f"Property scalers should be saved to {scaler_path}")
+            
+            # Load saved scalers and check they're properly fitted
+            with open(scaler_path, 'rb') as f:
+                scalers = pickle.load(f)
+                
+            # Verify scalers contain our target properties
+            for prop in config.target_properties:
+                self.assertIn(prop, scalers, f"Scaler should contain {prop}")
+                self.assertTrue(hasattr(scalers[prop], 'mean_'), 
+                               f"Scaler for {prop} should be fitted")
+                print(f"Scaler for {prop}: mean={scalers[prop].mean_[0]:.4f}, std={scalers[prop].scale_[0]:.4f}")
+            
+            # Check predictions file for evidence of inverse transform
+            predictions_path = os.path.join(config.output_dir, "predictions.json")
+            self.assertTrue(os.path.exists(predictions_path), 
+                           f"Predictions should be saved to {predictions_path}")
+            
+            # Load predictions and analyze
+            with open(predictions_path, 'r') as f:
+                predictions = json.load(f)
+                
+            # Verify predictions
+            self.assertGreater(len(predictions), 0, "Should have at least one prediction")
+            
+            # Check for presence of original (unscaled) values
+            prop = config.target_properties[0]  # Use the first property as an example
+            
+            # Calculate statistics of predictions to see if they're in original scale
+            pred_values = [p[prop] for p in predictions]
+            print(f"Prediction statistics for {prop}:")
+            print(f"  Min: {min(pred_values):.4f}, Max: {max(pred_values):.4f}")
+            print(f"  Mean: {np.mean(pred_values):.4f}, Std: {np.std(pred_values):.4f}")
+            
+            # The statistics should roughly match the original data scale, not standardized scale
+            # (standardized data would have mean near 0 and std near 1)
+            if np.mean(pred_values) > 0.5:  # Basic check that it's not standardized
+                print(f"✅ Predictions appear to be in original scale")
+            else:
+                print(f"⚠️ Predictions may still be in standardized scale")
+                
+            # If scaled versions are also included, verify they're different
+            if f"{prop}_scaled" in predictions[0]:
+                scaled_values = [p[f"{prop}_scaled"] for p in predictions]
+                print(f"Scaled prediction statistics for {prop}_scaled:")
+                print(f"  Min: {min(scaled_values):.4f}, Max: {max(scaled_values):.4f}")
+                print(f"  Mean: {np.mean(scaled_values):.4f}, Std: {np.std(scaled_values):.4f}")
+                
+                # Verify differences between original and scaled
+                self.assertNotEqual(pred_values, scaled_values, 
+                                  "Scaled and unscaled values should be different")
+            
+        except Exception as e:
+            self.fail(f"Training with property scaling failed: {e}")
 
 
 # This allows running the test directly
