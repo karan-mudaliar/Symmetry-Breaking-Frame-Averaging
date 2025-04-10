@@ -28,6 +28,8 @@ class Config(BaseModel):
     num_interactions: int = Field(4, description="Number of interaction blocks")
     dropout: float = Field(0.0, description="Dropout rate")
     output_properties: List[str] = Field(["energy"], description="Properties to predict")
+    atom_features: Literal["one_hot", "cgcnn"] = Field("cgcnn", 
+        description="Type of atom features (one_hot or cgcnn)")
     
     # Training parameters
     batch_size: int = Field(32, description="Batch size")
@@ -56,6 +58,7 @@ class Config(BaseModel):
     prop_files: Optional[List[str]] = Field(None, description="Files with property values")
     pbc: bool = Field(True, description="Use periodic boundary conditions")
     limit: Optional[int] = Field(None, description="Limit number of structures to process")
+    standardize: bool = Field(True, description="Whether to standardize target properties")
     
     # General parameters
     output_dir: Path = Field(Path("./outputs"), description="Output directory")

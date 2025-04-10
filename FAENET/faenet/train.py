@@ -400,7 +400,7 @@ def train(model, train_loader, val_loader, device, config):
         }, os.path.join(output_dir, "checkpoint.pt"))
 
 
-def run_inference(model, data_loader, device, config, output_file):
+def run_inference(model, data_loader, device, config, output_file=None, dataset_type="test", standardizer=None):
     """Run inference on a dataset and save predictions
     
     Args:
@@ -408,7 +408,12 @@ def run_inference(model, data_loader, device, config, output_file):
         data_loader: Data loader for inference
         device: Device to run on
         config: Configuration object
-        output_file: File to save predictions to
+        output_file: File to save predictions to (optional)
+        dataset_type: Type of dataset (train, val, test)
+        standardizer: Standardizer object for inverting normalization (optional)
+    
+    Returns:
+        list: List of prediction dictionaries
     """
     model.eval()
     
@@ -416,7 +421,7 @@ def run_inference(model, data_loader, device, config, output_file):
     results = []
     
     with torch.no_grad():
-        for batch_idx, batch in enumerate(tqdm(data_loader, desc="Running inference")):
+        for batch_idx, batch in enumerate(tqdm(data_loader, desc=f"Running inference on {dataset_type} set")):
             batch = batch.to(device)
             
             # Get unique identifiers for each structure in batch
@@ -496,45 +501,151 @@ def run_inference(model, data_loader, device, config, output_file):
             
             # Store predictions for each file
             for i, identifier in enumerate(unique_identifiers):
-                result = {"jid": identifier}
+                # Create result with dataset_type tag
+                result = {
+                    "jid": identifier,
+                    "dataset_type": dataset_type
+                }
                 
-                # Add predictions
+                # Add predictions (with inverse standardization if standardizer provided)
                 for prop in final_preds:
-                    # For graph-level properties (scalar)
-                    result[prop] = float(final_preds[prop][i][0])
+                    # Get standardized prediction value
+                    std_value = float(final_preds[prop][i][0])
+                    
+                    # Apply inverse standardization if needed
+                    if standardizer is not None and standardizer.is_fitted and prop in standardizer.mean:
+                        orig_value = standardizer.inverse_transform(std_value, prop)
+                        # Store both standardized and original values
+                        result[f"{prop}_std"] = std_value
+                        result[prop] = float(orig_value)
+                    else:
+                        # Just store prediction as is
+                        result[prop] = std_value
                 
-                # Add ground truth if available
+                # Add ground truth if available (use raw values if available)
                 for prop in model.output_properties:
-                    if hasattr(batch, prop):
+                    # First check if raw values are available
+                    raw_prop = f"{prop}_raw"
+                    if hasattr(batch, raw_prop):
+                        # Use raw (unstandardized) ground truth
+                        target_tensor = getattr(batch, raw_prop)
+                        if target_tensor.dim() <= 1:
+                            result[f"{prop}_true"] = float(target_tensor[i].item())
+                        else:
+                            result[f"{prop}_true"] = float(target_tensor[i][0].cpu().numpy())
+                    elif hasattr(batch, prop):
                         # Handle different tensor shapes correctly
                         target_tensor = getattr(batch, prop)
                         if target_tensor.dim() == 0:
                             # 0-dim tensor
-                            result[f"{prop}_true"] = float(target_tensor.item())
+                            std_value = float(target_tensor.item())
                         elif target_tensor.dim() == 1:
                             # 1-dim tensor
-                            result[f"{prop}_true"] = float(target_tensor[i].item())
+                            std_value = float(target_tensor[i].item())
                         else:
                             # 2-dim or higher tensor
-                            result[f"{prop}_true"] = float(target_tensor[i][0].cpu().numpy())
-                
+                            std_value = float(target_tensor[i][0].cpu().numpy())
+                        
+                        # Apply inverse standardization if needed
+                        if standardizer is not None and standardizer.is_fitted and prop in standardizer.mean:
+                            orig_value = standardizer.inverse_transform(std_value, prop)
+                            # Store both standardized and original values
+                            result[f"{prop}_true_std"] = std_value
+                            result[f"{prop}_true"] = float(orig_value)
+                        else:
+                            # Just store as is
+                            result[f"{prop}_true"] = std_value
                 
                 results.append(result)
     
-    # Save results to file
+    # Save results to file if output_file is provided
+    if output_file:
+        import json
+        with open(output_file, 'w') as f:
+            json.dump(results, f, indent=2)
+        
+        # Log info about the identifiers used
+        id_type = "unique" if any(['_' in str(r['jid']) for r in results[:5]]) else "index-based"
+        has_flipped = any(['flipped' in str(r['jid']) for r in results])
+        
+        logger.info("inference_results_saved", 
+                  count=len(results), 
+                  output_file=output_file,
+                  dataset_type=dataset_type,
+                  identifier_type=id_type,
+                  includes_flipped_status=has_flipped)
+    
+    return results
+
+
+def run_inference_all_sets(model, train_loader, val_loader, test_loader, device, config, output_dir, standardizer=None):
+    """Run inference on all datasets and save to separate and combined files
+    
+    Args:
+        model: FAENet model
+        train_loader: Training data loader
+        val_loader: Validation data loader
+        test_loader: Test data loader
+        device: Device to run on
+        config: Configuration object
+        output_dir: Directory to save output files
+        standardizer: Standardizer for inverse transformation of predictions
+        
+    Returns:
+        dict: Dictionary with paths to all prediction files
+    """
+    # Generate file paths
+    train_output = os.path.join(output_dir, "predictions_train.json")
+    val_output = os.path.join(output_dir, "predictions_val.json")
+    test_output = os.path.join(output_dir, "predictions_test.json")
+    combined_output = os.path.join(output_dir, "predictions_all.json")
+    
+    # Run inference on each dataset
+    logger.info("running_inference_on_all_sets", standardization_available=(standardizer is not None))
+    
+    # Run inference on each dataset and save individual files
+    train_results = run_inference(model, train_loader, device, config, train_output, dataset_type="train", standardizer=standardizer)
+    val_results = run_inference(model, val_loader, device, config, val_output, dataset_type="val", standardizer=standardizer)
+    test_results = run_inference(model, test_loader, device, config, test_output, dataset_type="test", standardizer=standardizer)
+    
+    # Combine all results
+    all_results = train_results + val_results + test_results
+    
+    # Save combined file
     import json
-    with open(output_file, 'w') as f:
-        json.dump(results, f, indent=2)
+    with open(combined_output, 'w') as f:
+        json.dump(all_results, f, indent=2)
     
-    # Log info about the identifiers used
-    id_type = "unique" if any(['_' in str(r['jid']) for r in results[:5]]) else "index-based"
-    has_flipped = any(['flipped' in str(r['jid']) for r in results])
+    # Log summary information
+    logger.info("all_inference_results_saved",
+              train_count=len(train_results),
+              val_count=len(val_results),
+              test_count=len(test_results),
+              total_count=len(all_results),
+              combined_file=combined_output)
     
-    logger.info("inference_results_saved", 
-               count=len(results), 
-               output_file=output_file,
-               identifier_type=id_type,
-               includes_flipped_status=has_flipped)
+    # Perform validation checks
+    expected_train_count = len(train_loader.dataset)
+    expected_val_count = len(val_loader.dataset)
+    expected_test_count = len(test_loader.dataset)
+    expected_total = expected_train_count + expected_val_count + expected_test_count
+    
+    # Log validation results
+    logger.info("inference_validation",
+               train_match=(len(train_results) == expected_train_count),
+               val_match=(len(val_results) == expected_val_count),
+               test_match=(len(test_results) == expected_test_count),
+               total_match=(len(all_results) == expected_total),
+               expected_total=expected_total,
+               actual_total=len(all_results))
+    
+    # Return all file paths for logging to MLflow
+    return {
+        "train": train_output,
+        "val": val_output,
+        "test": test_output,
+        "combined": combined_output
+    }
 
 
 def train_faenet(
@@ -679,9 +790,13 @@ def train_faenet(
     # Create config from parameters
     config = Config(**config_params)
     
-    # Create dataset
+    # Create dataset with enhanced graph construction and standardization
     logger.info("loading_dataset", data_path=str(data_path))
-    dataset = SlabDataset(
+    
+    # Use the enhanced create_dataloader function to handle standardization properly
+    from faenet.dataset import create_dataloader
+    
+    train_loader, val_loader, test_loader, dataset, standardizer = create_dataloader(
         data_source=data_path,
         structure_col=structure_col,
         target_props=target_properties,
@@ -689,40 +804,46 @@ def train_faenet(
         max_neighbors=max_neighbors,
         pbc=pbc,
         frame_averaging=frame_averaging,
-        fa_method=fa_method
-    )
-    
-    # Split into train, validation, and test sets
-    test_size = int(len(dataset) * test_ratio)
-    val_size = int(len(dataset) * val_ratio)
-    train_size = len(dataset) - val_size - test_size
-    
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset, [train_size, val_size, test_size],
-        generator=torch.Generator().manual_seed(seed)
-    )
-    
-    # Create data loaders
-    train_loader = DataLoader(
-        train_dataset,
+        fa_method=fa_method,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers
+        num_workers=num_workers,
+        train_ratio=1 - test_ratio - val_ratio,
+        val_ratio=val_ratio,
+        test_ratio=test_ratio,
+        seed=seed,
+        atom_features=config.atom_features if hasattr(config, 'atom_features') else "cgcnn",
+        standardize=config.standardize if hasattr(config, 'standardize') else True,
+        output_dir=output_dir   # Save standardization parameters
     )
     
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers
-    )
+    # Log standardization parameters for each property
+    for prop in standardizer.mean:
+        logger.info("standardization_params", 
+                   property=prop, 
+                   mean=standardizer.mean[prop], 
+                   std=standardizer.std[prop])
     
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers
-    )
+    # Store standardization parameters in MLflow if enabled
+    if hasattr(config, 'use_mlflow') and config.use_mlflow:
+        # Save standardizer to file
+        standardizer_path = os.path.join(output_dir, "standardizer.pkl")
+        with open(standardizer_path, 'wb') as f:
+            import pickle
+            pickle.dump(standardizer.get_params(), f)
+            
+        # Log standardizer as artifact
+        mlflow.log_artifact(standardizer_path)
+        
+        # Also log parameters for easy access
+        for prop in standardizer.mean:
+            mlflow.log_param(f"std_mean_{prop}", standardizer.mean[prop])
+            mlflow.log_param(f"std_std_{prop}", standardizer.std[prop])
+            
+    # Record dataset sizes
+    train_size = len(train_loader.dataset)
+    val_size = len(val_loader.dataset)
+    test_size = len(test_loader.dataset)
     
     # Determine output properties from target_properties
     if isinstance(target_properties, list):
@@ -913,10 +1034,7 @@ def train_faenet(
             # Log test metrics
             mlflow.log_metric("test_loss", test_loss)
             
-            # Log the inference JSON as an artifact
-            inference_output_path = os.path.join(output_dir, config.inference_output)
-            if os.path.exists(inference_output_path):
-                mlflow.log_artifact(inference_output_path)
+            # No need for this section anymore as we handle artifact logging after inference
                 
             # Only end the run if specified (to support tests that need to check the run right after training)
             # We'll keep the run active during test execution, and the test itself can end it if needed
@@ -938,9 +1056,17 @@ def train_faenet(
         model.load_state_dict(torch.load(best_model_path, map_location=device))
         logger.info("best_model_loaded", path=best_model_path)
     
-    # Run inference on test set
-    inference_output = os.path.join(output_dir, "predictions.json")
-    run_inference(model, test_loader, device, config, inference_output)
+    # Run inference on all datasets (train, val, test) with standardizer
+    inference_files = run_inference_all_sets(
+        model, train_loader, val_loader, test_loader, device, config, output_dir, standardizer
+    )
+    
+    # Log all inference files to MLflow if enabled
+    if hasattr(config, 'use_mlflow') and config.use_mlflow:
+        for dataset_type, file_path in inference_files.items():
+            if os.path.exists(file_path):
+                mlflow.log_artifact(file_path)
+                logger.info(f"logged_{dataset_type}_predictions_to_mlflow", file=file_path)
     
     return model, test_loader
 

@@ -43,6 +43,12 @@ pip install torch_geometric
 # Install other dependencies
 pip install tyro pydantic pymatgen pandas tqdm structlog coolname
 pip install sympy==1.13.1 fsspec ase mlflow
+
+# Optional: Install matminer for enhanced atom features (alternative to built-in features)
+# pip install matminer 
+
+# Optional: Install notebook dependencies for examples
+# pip install jupyter matplotlib seaborn
 ```
 
 ### Running Tests
@@ -56,7 +62,14 @@ python -m pytest -v
 To run a specific test:
 
 ```bash
-python -m pytest tests/test_frame_averaging.py -v
+# Test frame averaging functionality
+python -m pytest FAENET/tests/test_frame_averaging.py -v
+
+# Test integration of frame averaging with graph construction
+python -m pytest FAENET/tests/test_integration.py -v
+
+# Test graph construction with frame averaging
+python -m pytest FAENET/tests/test_graph_construction.py -v
 ```
 
 ## Configuration Parameters
