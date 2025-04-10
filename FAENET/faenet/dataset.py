@@ -7,9 +7,11 @@ import os
 import torch
 import pandas as pd
 import numpy as np
+import pickle
 from typing import List, Optional, Union, Dict, Tuple
 from tqdm import tqdm
 import structlog
+from sklearn.preprocessing import StandardScaler
 
 import torch
 from torch.utils.data import Dataset
@@ -183,7 +185,17 @@ class SlabDataset(Dataset):
             # Add target properties
             for prop_name, values in self.target_properties.items():
                 if idx < len(values):
-                    setattr(data, prop_name, torch.tensor([values[idx]], dtype=torch.float))
+                    value = values[idx]
+                    
+                    # Store original value for reference
+                    setattr(data, f"{prop_name}_orig", torch.tensor([value], dtype=torch.float))
+                    
+                    # Apply scaling if scaler exists
+                    if hasattr(self, 'scalers') and prop_name in self.scalers:
+                        value = float(self.scalers[prop_name].transform([[value]])[0][0])
+                    
+                    # Store (potentially scaled) value
+                    setattr(data, prop_name, torch.tensor([value], dtype=torch.float))
         else:
             # CSV source
             row = self.df.iloc[idx]
@@ -192,7 +204,16 @@ class SlabDataset(Dataset):
             # Add target properties
             for prop_name in self.target_properties:
                 if prop_name in self.df.columns:
-                    value = row[prop_name]
+                    value = float(row[prop_name])
+                    
+                    # Store original value for reference
+                    setattr(data, f"{prop_name}_orig", torch.tensor([value], dtype=torch.float))
+                    
+                    # Apply scaling if scaler exists
+                    if hasattr(self, 'scalers') and prop_name in self.scalers:
+                        value = float(self.scalers[prop_name].transform([[value]])[0][0])
+                    
+                    # Store (potentially scaled) value
                     setattr(data, prop_name, torch.tensor([value], dtype=torch.float))
         
         # Apply frame averaging if requested
@@ -240,8 +261,14 @@ def create_dataloader(
     test_ratio=0.1,
     seed=42
 ):
-    """Create train, validation, and test dataloaders."""
-    from torch.utils.data import random_split
+    """Create train, validation, and test dataloaders with property scaling.
+    
+    This function:
+    1. Creates a dataset with the given parameters
+    2. Fits property scalers on the training split
+    3. Returns dataloaders for train/val/test splits
+    """
+    from torch.utils.data import random_split, Subset
     from torch_geometric.loader import DataLoader
     
     # Set random seed for reproducibility
@@ -266,15 +293,66 @@ def create_dataloader(
     n_val = int(n_total * val_ratio)
     n_test = n_total - n_train - n_val
     
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset, [n_train, n_val, n_test]
-    )
+    # Get indices for each split
+    indices = list(range(n_total))
+    if shuffle:
+        np.random.shuffle(indices)
+    
+    train_indices = indices[:n_train]
+    val_indices = indices[n_train:n_train+n_val]
+    test_indices = indices[n_train+n_val:]
+    
+    # Create property scalers using training data
+    if isinstance(target_props, list) and len(target_props) > 0:
+        scalers = {}
+        
+        # Extract data values from training set for each property
+        train_values = {prop: [] for prop in target_props}
+        
+        if dataset.source_type == "csv":
+            # For CSV source, extract values directly from DataFrame
+            for idx in train_indices:
+                row = dataset.df.iloc[idx]
+                for prop in target_props:
+                    if prop in dataset.df.columns:
+                        train_values[prop].append(float(row[prop]))
+        else:
+            # For directory source, extract from target_properties dict
+            for prop in target_props:
+                if prop in dataset.target_properties:
+                    values = dataset.target_properties[prop]
+                    for idx in train_indices:
+                        if idx < len(values):
+                            train_values[prop].append(values[idx])
+        
+        # Fit StandardScalers on training data
+        for prop in target_props:
+            if prop in train_values and len(train_values[prop]) > 0:
+                scaler = StandardScaler()
+                scaler.fit(np.array(train_values[prop]).reshape(-1, 1))
+                scalers[prop] = scaler
+                
+                # Log mean and std for each property
+                logger.info("property_scaled", 
+                          property=prop, 
+                          mean=float(scaler.mean_[0]), 
+                          std=float(scaler.scale_[0]))
+        
+        # Store scalers on dataset for later use
+        dataset.scalers = scalers
+    else:
+        dataset.scalers = {}
+    
+    # Create subset datasets
+    train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
+    test_dataset = Subset(dataset, test_indices)
     
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=True,  # Always shuffle training data
         num_workers=num_workers
     )
     

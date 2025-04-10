@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch_geometric.loader import DataLoader
 import numpy as np
+import pickle
 from tqdm import tqdm
 from torch.utils.data import random_split
 import structlog
@@ -481,18 +482,52 @@ def run_inference(model, data_loader, device, config, output_file):
                 if hasattr(batch, 'cell') and batch.cell is not None:
                     batch.cell = original_cell
                 
-                # Average predictions across frames
+                # Average predictions across frames and inverse transform if needed
                 final_preds = {}
                 for prop in model.output_properties:
-                    final_preds[prop] = (sum(e_all[prop]) / len(e_all[prop])).cpu().numpy()
+                    # Average scaled predictions
+                    avg_pred = (sum(e_all[prop]) / len(e_all[prop])).cpu().numpy()
+                    final_preds[prop] = avg_pred
+                    
+                    # Apply inverse transform if scaler is available
+                    if hasattr(data_loader.dataset.dataset, 'scalers') and prop in data_loader.dataset.dataset.scalers:
+                        scaler = data_loader.dataset.dataset.scalers[prop]
+                        # Store original scaled predictions
+                        final_preds[f"{prop}_scaled"] = avg_pred.copy()
+                        # Apply inverse transform
+                        try:
+                            for i in range(len(avg_pred)):
+                                for j in range(len(avg_pred[i])):
+                                    avg_pred[i][j] = scaler.inverse_transform([[avg_pred[i][j]]])[0][0]
+                            final_preds[prop] = avg_pred
+                            logger.debug("inverse_transform_applied", property=prop)
+                        except Exception as e:
+                            logger.warning("inverse_transform_error", property=prop, error=str(e))
             else:
                 # Standard forward pass
                 preds = model(batch)
                 
-                # Convert predictions to numpy
+                # Convert predictions to numpy and inverse transform if needed
                 final_preds = {}
                 for prop in model.output_properties:
-                    final_preds[prop] = preds[prop].cpu().numpy()
+                    # Get scaled predictions
+                    pred = preds[prop].cpu().numpy()
+                    final_preds[prop] = pred
+                    
+                    # Apply inverse transform if scaler is available
+                    if hasattr(data_loader.dataset.dataset, 'scalers') and prop in data_loader.dataset.dataset.scalers:
+                        scaler = data_loader.dataset.dataset.scalers[prop]
+                        # Store original scaled predictions
+                        final_preds[f"{prop}_scaled"] = pred.copy()
+                        # Apply inverse transform
+                        try:
+                            for i in range(len(pred)):
+                                for j in range(len(pred[i])):
+                                    pred[i][j] = scaler.inverse_transform([[pred[i][j]]])[0][0]
+                            final_preds[prop] = pred
+                            logger.debug("inverse_transform_applied", property=prop)
+                        except Exception as e:
+                            logger.warning("inverse_transform_error", property=prop, error=str(e))
             
             # Store predictions for each file
             for i, identifier in enumerate(unique_identifiers):
@@ -931,6 +966,20 @@ def train_faenet(
         train(model, train_loader, val_loader, device, config)
     
     logger.info("training_complete")
+    
+    # Save property scalers if they exist
+    if hasattr(dataset, 'scalers') and dataset.scalers:
+        scaler_path = os.path.join(output_dir, "property_scalers.pkl")
+        with open(scaler_path, 'wb') as f:
+            pickle.dump(dataset.scalers, f)
+        logger.info("property_scalers_saved", path=scaler_path)
+        
+        # Log scaler statistics
+        for prop, scaler in dataset.scalers.items():
+            logger.info("property_scaling_stats",
+                       property=prop,
+                       mean=float(scaler.mean_[0]),
+                       std=float(scaler.scale_[0]))
     
     # Load best model
     best_model_path = os.path.join(output_dir, "best_model.pt")
