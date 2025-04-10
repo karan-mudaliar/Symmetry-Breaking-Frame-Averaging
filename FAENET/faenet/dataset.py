@@ -320,12 +320,8 @@ def create_dataloader(
     val_indices = indices[n_train:n_train+n_val]
     test_indices = indices[n_train+n_val:]
     
-    # Check if we should apply property scaling (default to False)
-    use_scaling = kwargs.get('use_property_scaling', False)
-    
-    # Ensure use_scaling is properly passed from parent function
-    if 'use_property_scaling' in kwargs:
-        use_scaling = kwargs['use_property_scaling']
+    # Use the passed parameter directly
+    use_scaling = use_property_scaling
     
     # Store scaling setting on dataset
     dataset.use_scaling = use_scaling

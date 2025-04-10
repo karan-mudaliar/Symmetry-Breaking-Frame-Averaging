@@ -739,8 +739,8 @@ def train_faenet(
         run_name = generate_run_name()
         logger.info("generated_run_name", run_name=run_name)
     
-    # Get property scaling parameter
-    use_property_scaling = model_kwargs.get('use_property_scaling', True)
+    # Get property scaling parameter (default to False)
+    use_property_scaling = model_kwargs.get('use_property_scaling', False)
     
     # Create config object with all parameters
     config_params = {
@@ -784,8 +784,8 @@ def train_faenet(
     # Create dataset and dataloaders with optional property scaling
     logger.info("loading_dataset", data_path=str(data_path))
     
-    # Get property scaling parameter
-    use_property_scaling = model_kwargs.get('use_property_scaling', True)
+    # Get property scaling parameter (default to False)
+    use_property_scaling = model_kwargs.get('use_property_scaling', False)
     
     # Use the enhanced dataloader creation function
     from faenet.dataset import create_dataloader
