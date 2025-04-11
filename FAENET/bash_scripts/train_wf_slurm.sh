@@ -29,6 +29,10 @@ conda activate faenet
 # Go to repository directory
 cd /home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging
 
+# Ensure we're on the dev branch
+git checkout dev
+echo "Current git branch: $(git branch --show-current)"
+
 # More debug information
 echo "PYTHONPATH: $PYTHONPATH"
 echo "Conda environment: $CONDA_DEFAULT_ENV"
