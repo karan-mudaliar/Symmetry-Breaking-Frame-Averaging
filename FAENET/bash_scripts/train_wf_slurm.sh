@@ -45,8 +45,8 @@ echo "Updated PYTHONPATH: $PYTHONPATH"
 # Change to the FAENET directory for proper module imports
 cd /home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/FAENET
 
-# Run the training script with desired parameters
-python -m faenet.train \
+# Run the training script directly with the file path
+python faenet/train.py \
   --data_path=/home/mudaliar.k/data/DFT_data.csv \
   --structure_col=slab \
   --target_properties=[WF_top,WF_bottom] \
