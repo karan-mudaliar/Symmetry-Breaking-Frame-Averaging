@@ -38,30 +38,60 @@ echo "PYTHONPATH: $PYTHONPATH"
 echo "Conda environment: $CONDA_DEFAULT_ENV"
 echo "Starting training job..."
 
-# Add the repo to PYTHONPATH to allow importing the faenet module
-export PYTHONPATH=$PYTHONPATH:/home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/FAENET
-echo "Updated PYTHONPATH: $PYTHONPATH"
+# Create a small Python script that handles imports correctly (same as test cases)
+cat > /home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/run_train.py << 'EOF'
+#!/usr/bin/env python
+import os
+import sys
 
-# Change to the FAENET directory for proper module imports
-cd /home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/FAENET
+# Add parent directory to sys.path - exactly like tests do
+sys.path.insert(0, os.path.abspath("/home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/FAENET"))
 
-# Run the training script directly with the file path
-python faenet/train.py \
-  --data_path=/home/mudaliar.k/data/DFT_data.csv \
-  --structure_col=slab \
-  --target_properties=[WF_top,WF_bottom] \
-  --frame_averaging=2D \
-  --fa_method=all \
-  --batch_size=32 \
-  --epochs=300 \
-  --learning_rate=0.001 \
-  --weight_decay=1e-5 \
-  --output_dir=/home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/outputs/WF_run_1 \
-  --device=cuda \
-  --consistency_loss \
-  --consistency_weight=0.1 \
-  --consistency_norm \
-  --dropout=0.15 \
-  --use_mlflow \
-  --mlflow_experiment_name=FAENet_WF_Predictions \
-  --run_name=WF_run_1
+# Now we can import the modules
+from faenet.config import Config
+from faenet.train import train_faenet
+import datetime
+
+print(f"Python code started execution at: {datetime.datetime.now()}")
+print("Using sys.path:", sys.path)
+
+# Create configuration directly
+config = Config(
+    data_path="/home/mudaliar.k/data/DFT_data.csv",
+    structure_col="slab",
+    target_properties=["WF_top", "WF_bottom"],
+    frame_averaging="2D",
+    fa_method="all",
+    batch_size=32,
+    epochs=300,
+    learning_rate=0.001,
+    weight_decay=1e-5,
+    output_dir="/home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/outputs/WF_run_1",
+    device="cuda",
+    consistency_loss=True,
+    consistency_weight=0.1,
+    consistency_norm=True,
+    dropout=0.15,
+    use_mlflow=True,
+    mlflow_experiment_name="FAENet_WF_Predictions",
+    run_name="WF_run_1"
+)
+
+# Run training
+print("Starting training...")
+model, _ = train_faenet(**config.model_dump())
+print("Training completed!")
+print(f"Python code finished execution at: {datetime.datetime.now()}")
+EOF
+
+# Run the Python script
+cd /home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging
+echo "=========================================================="
+echo "STARTING PYTHON SCRIPT EXECUTION: $(date)"
+echo "=========================================================="
+python run_train.py
+echo "=========================================================="
+echo "PYTHON SCRIPT EXECUTION COMPLETED: $(date)"
+echo "=========================================================="
+
+echo "Training job completed"
