@@ -19,7 +19,7 @@ which python
 python --version
 
 # Load required modules
-module load anaconda3/2024.06
+module load anaconda3/2021.05  # Using the version that appeared in your output
 module load cuda/12.1
 
 # Activate conda environment
@@ -41,17 +41,13 @@ echo "Starting training job..."
 # Add the repo to PYTHONPATH to ensure modules can be found
 export PYTHONPATH=$PYTHONPATH:/home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging
 
-# Debug - list the directory structure to verify paths
-echo "Checking FAENET directory structure:"
-ls -la FAENET/
-echo "Checking faenet module directory:"
-ls -la FAENET/faenet/
+# Direct approach - find the train.py file and run it directly
+echo "Locating train.py file..."
+TRAIN_SCRIPT=$(find FAENET -name "train.py" | grep -v "__pycache__")
+echo "Found train script at: $TRAIN_SCRIPT"
 
-# Run the training script with desired parameters
 echo "Running training command..."
-cd FAENET  # Change to FAENET directory first
-
-python -u -m faenet.train \
+python -u $TRAIN_SCRIPT \
   --data_path=/home/mudaliar.k/data/DFT_data.csv \
   --structure_col=slab \
   --target_properties=WF_top,WF_bottom \
