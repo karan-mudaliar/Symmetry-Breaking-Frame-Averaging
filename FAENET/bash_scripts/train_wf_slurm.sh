@@ -42,10 +42,10 @@ echo "Starting training job..."
 export PYTHONPATH=$PYTHONPATH:/home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/FAENET
 echo "Updated PYTHONPATH: $PYTHONPATH"
 
-# Run the training script with desired parameters
+# Change to the FAENET directory for proper module imports
 cd /home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/FAENET
 
-# Run with the correct module path
+# Run the training script with desired parameters
 python -m faenet.train \
   --data_path=/home/mudaliar.k/data/DFT_data.csv \
   --structure_col=slab \
