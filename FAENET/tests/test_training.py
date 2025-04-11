@@ -104,10 +104,16 @@ class TestTraining(unittest.TestCase):
             # Variables to track logging
             logged_metrics = []
             
-            # Create a patching function to track what metrics are logged
+            # Create a patching function that tests item() extraction like in real code
             def patched_log_metric(key, value, **kwargs):
                 logged_metrics.append(key)
-                return original_log_metric(key, value, **kwargs)
+                # Actually try to extract the item value to test for errors
+                if hasattr(value, 'item'):
+                    extracted_value = value.item()
+                else:
+                    # Convert to float if it's not already a tensor with .item()
+                    extracted_value = float(value)
+                return original_log_metric(key, extracted_value, **kwargs)
             
             # Patch mlflow.log_metric for this test
             mlflow.log_metric = patched_log_metric
@@ -161,6 +167,16 @@ class TestTraining(unittest.TestCase):
                 consistency_metrics = [m for m in logged_metrics if "consistency" in m]
                 self.assertTrue(len(consistency_metrics) > 0, 
                               f"No consistency metrics found in {logged_metrics}")
+                
+                # Verify that mlflow patching worked correctly
+                self.assertIn("consistency_loss", logged_metrics, 
+                              "consistency_loss should be logged")
+                self.assertIn("train_consistency_loss", logged_metrics,
+                              "train_consistency_loss should be logged")
+                
+                # The fact that we reach this point means our patched function
+                # successfully extracted the .item() from consistency_loss values
+                print("✅ MLflow item() extraction test passed!")
                 
                 print("✅ Consistency loss and MLflow integration test passed!")
                 
@@ -237,10 +253,16 @@ class TestTraining(unittest.TestCase):
             # Variables to track logging
             logged_metrics = []
             
-            # Create a patching function to track what metrics are logged
+            # Create a patching function that tests item() extraction like in real code
             def patched_log_metric(key, value, **kwargs):
                 logged_metrics.append(key)
-                return original_log_metric(key, value, **kwargs)
+                # Actually try to extract the item value to test for errors
+                if hasattr(value, 'item'):
+                    extracted_value = value.item()
+                else:
+                    # Convert to float if it's not already a tensor with .item()
+                    extracted_value = float(value)
+                return original_log_metric(key, extracted_value, **kwargs)
             
             # Patch mlflow.log_metric for this test
             mlflow.log_metric = patched_log_metric

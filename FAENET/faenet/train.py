@@ -124,7 +124,8 @@ def train(model, train_loader, val_loader, device, config):
                 
                 if hasattr(config, 'consistency_loss') and config.consistency_loss:
                     from faenet.frame_averaging import compute_consistency_loss
-                    consistency_loss = 0
+                    # Initialize as tensor to ensure type safety
+                    consistency_loss = torch.tensor(0.0, device=device)
                     logger.warn("consistency_loss_enabled", 
                                weight=config.consistency_weight,
                                normalize=config.consistency_norm)
@@ -182,7 +183,12 @@ def train(model, train_loader, val_loader, device, config):
                     # Log metrics if MLflow is enabled
                     if hasattr(config, 'use_mlflow') and config.use_mlflow:
                         try:
-                            metric_value = consistency_loss.item()
+                            # Handle both tensor and scalar cases
+                            if hasattr(consistency_loss, 'item'):
+                                metric_value = consistency_loss.item()
+                            else:
+                                metric_value = float(consistency_loss)
+                                
                             # Log with two different metric names to ensure compatibility
                             mlflow.log_metric("consistency_loss", metric_value, step=epoch)
                             mlflow.log_metric("train_consistency_loss", metric_value, step=epoch)
@@ -292,7 +298,8 @@ def train(model, train_loader, val_loader, device, config):
                     val_consistency_loss = None
                     if hasattr(config, 'consistency_loss') and config.consistency_loss:
                         from faenet.frame_averaging import compute_consistency_loss
-                        val_consistency_loss = 0
+                        # Initialize as tensor to ensure type safety
+                        val_consistency_loss = torch.tensor(0.0, device=device)
                     
                     for prop_idx, prop in enumerate(model.output_properties):
                         if hasattr(batch, prop):
@@ -324,7 +331,12 @@ def train(model, train_loader, val_loader, device, config):
                         
                         # Log metrics if MLflow is enabled
                         if hasattr(config, 'use_mlflow') and config.use_mlflow:
-                            mlflow.log_metric("val_consistency_loss", val_consistency_loss.item(), step=epoch)
+                            # Handle both tensor and scalar cases
+                            if hasattr(val_consistency_loss, 'item'):
+                                val_metric_value = val_consistency_loss.item()
+                            else:
+                                val_metric_value = float(val_consistency_loss)
+                            mlflow.log_metric("val_consistency_loss", val_metric_value, step=epoch)
                 else:
                     # Standard forward pass
                     preds = model(batch)
@@ -851,7 +863,8 @@ def train_faenet(
                         test_consistency_loss = None
                         if hasattr(config, 'consistency_loss') and config.consistency_loss:
                             from faenet.frame_averaging import compute_consistency_loss
-                            test_consistency_loss = 0
+                            # Initialize as tensor to ensure type safety
+                            test_consistency_loss = torch.tensor(0.0, device=device)
                         
                         for prop_idx, prop in enumerate(model.output_properties):
                             if hasattr(batch, prop):
@@ -883,7 +896,12 @@ def train_faenet(
                             
                             # Log metrics if MLflow is enabled
                             if hasattr(config, 'use_mlflow') and config.use_mlflow:
-                                mlflow.log_metric("test_consistency_loss", test_consistency_loss.item())
+                                # Handle both tensor and scalar cases
+                                if hasattr(test_consistency_loss, 'item'):
+                                    test_metric_value = test_consistency_loss.item()
+                                else:
+                                    test_metric_value = float(test_consistency_loss)
+                                mlflow.log_metric("test_consistency_loss", test_metric_value)
                     else:
                         # Standard forward pass
                         preds = model(batch)
