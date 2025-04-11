@@ -26,7 +26,7 @@ def compute_frames(eigenvec, pos, cell, fa_method="random", pos_3D=None, det_ind
     """
     dim = pos.shape[1]  # to differentiate between 2D or 3D case
     plus_minus_list = list(product([1, -1], repeat=dim))
-    plus_minus_list = [torch.tensor(x) for x in plus_minus_list]
+    plus_minus_list = [torch.tensor(x, device=pos.device) for x in plus_minus_list]
     all_fa_pos = []
     all_cell = []
     all_rots = []
@@ -57,7 +57,7 @@ def compute_frames(eigenvec, pos, cell, fa_method="random", pos_3D=None, det_ind
         fa_pos = pos @ new_eigenvec
 
         if pos_3D is not None:
-            full_eigenvec = torch.eye(3)
+            full_eigenvec = torch.eye(3, device=pos.device)
             fa_pos = torch.cat((fa_pos, pos_3D.unsqueeze(1)), dim=1)
             full_eigenvec[:2, :2] = new_eigenvec
             new_eigenvec = full_eigenvec
@@ -215,7 +215,7 @@ class RandomRotate:
         angles = [random.uniform(*self.angle_range) for _ in self.axes]
         
         # Create rotation matrix
-        rot = torch.eye(3)
+        rot = torch.eye(3, device=pos.device)
         for axis, angle in zip(self.axes, angles):
             angle_rad = angle * (3.14159 / 180.0)
             c, s = torch.cos(torch.tensor(angle_rad)), torch.sin(torch.tensor(angle_rad))
