@@ -54,21 +54,34 @@ sed -i 's/torch\.eye(3)/torch.eye(3, device=pos.device)/g' faenet/frame_averagin
 
 echo "✅ Successfully patched frame_averaging.py to fix device issues"
 
+# Fix the train.py script to properly pass consistency_loss to train_faenet
+echo "Patching train.py to properly pass consistency_loss parameter..."
+cp faenet/train.py faenet/train.py.backup
+
+# Add consistency_loss parameters to the train_faenet call in main()
+sed -i '/        dropout=config.dropout/ a\\        consistency_loss=config.consistency_loss,\n        consistency_weight=config.consistency_weight,\n        consistency_norm=config.consistency_norm,' faenet/train.py
+
+echo "✅ Successfully patched train.py to pass consistency_loss parameters"
+
 # Debug - list the directory structure to verify paths
-echo "Checking FAENET directory structure:"
-ls -la FAENET/
-echo "Checking faenet module directory:"
-ls -la FAENET/faenet/
+echo "Current working directory:"
+pwd
+echo "FAENET directory structure:"
+ls -la 
+echo "faenet module directory:"
+ls -la faenet/
 
 # Run the training script with desired parameters
 echo "Running training command..."
-cd FAENET  # Change to FAENET directory first
+
+# Make sure we're in the right directory
+cd /home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging
 
 # Use the CLI approach with corrected parameters
-python -u -m faenet.train \
+python -u -m FAENET.faenet.train \
   --data_path="/home/mudaliar.k/data/DFT_data.csv" \
   --structure_col="slab" \
-  --target_properties='["WF_top", "WF_bottom"]' \
+  --target_properties=[WF_top,WF_bottom] \
   --frame_averaging="2D" \
   --fa_method="all" \
   --batch_size=32 \
