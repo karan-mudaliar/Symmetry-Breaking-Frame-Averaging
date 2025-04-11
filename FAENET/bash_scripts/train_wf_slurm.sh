@@ -63,12 +63,12 @@ python -u -m faenet.train \
   --weight_decay=1e-5 \
   --output_dir=/home/mudaliar.k/github/Symmetry-Breaking-Frame-Averaging/outputs/WF_run_1 \
   --device=cuda \
-  --use_mlflow=True \
+  --use_mlflow \
   --mlflow_experiment_name="FAENet_WF_Predictions" \
   --run_name="WF_run_1" \
-  --consistency_loss=True \
+  --consistency_loss \
   --consistency_weight=0.1 \
-  --consistency_norm=True \
+  --consistency_norm \
   --dropout=0.15
 
 echo "Training job completed"
