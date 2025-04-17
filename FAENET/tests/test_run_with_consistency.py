@@ -71,7 +71,7 @@ class TestRunWithConsistency(unittest.TestCase):
             
             # Training parameters
             'batch_size': 4,
-            'epochs': 1,  # Minimum to test functionality
+            'epochs': 2,  # Run 2 epochs to test epoch transitions
             'learning_rate': 0.001,
             'weight_decay': 1e-5,
             'frame_averaging': "2D",  # Enable frame averaging for consistency loss
@@ -121,6 +121,47 @@ class TestRunWithConsistency(unittest.TestCase):
             # Check model structure
             self.assertTrue(hasattr(model, 'output_properties'), "Model should have output_properties attribute")
             self.assertEqual(len(model.output_properties), 2, "Model should have two output properties")
+            
+            # Check checkpoint for both epochs
+            checkpoint1_path = os.path.join(self.output_dir, "checkpoint_epoch_1.pt")
+            self.assertTrue(os.path.exists(checkpoint1_path), f"Checkpoint for epoch 1 was not saved")
+            
+            checkpoint2_path = os.path.join(self.output_dir, "checkpoint_epoch_2.pt")  
+            self.assertTrue(os.path.exists(checkpoint2_path), f"Checkpoint for epoch 2 was not saved")
+            
+            # Verify backward pass by running model inference and checking gradients
+            try:
+                # Create a dummy batch with a single input
+                batch = next(iter(test_loader)).to("cpu")
+                
+                # Set model to training mode
+                model.train()
+                
+                # Forward pass
+                outputs = model(batch)
+                
+                # Verify outputs are tensors with gradients
+                for prop in model.output_properties:
+                    self.assertTrue(outputs[prop].requires_grad, f"Output for {prop} should require gradients")
+                
+                # Create a dummy loss
+                dummy_loss = sum(outputs[prop].mean() for prop in model.output_properties)
+                
+                # Backward pass
+                dummy_loss.backward()
+                
+                # Check that gradients are computed for model parameters
+                param_with_grad = False
+                for param in model.parameters():
+                    if param.grad is not None:
+                        param_with_grad = True
+                        break
+                
+                self.assertTrue(param_with_grad, "At least one parameter should have gradients")
+                
+                print("✅ Gradient flow test passed!")
+            except Exception as e:
+                self.fail(f"Gradient test failed: {e}")
             
         except Exception as e:
             import traceback

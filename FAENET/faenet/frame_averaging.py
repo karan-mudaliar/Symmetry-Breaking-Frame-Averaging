@@ -241,55 +241,68 @@ class RandomRotate:
         return data, rot, rot.t()
 
 
-def compute_consistency_loss(frame_predictions, normalize=True):
-    """Compute consistency loss as variance across frame predictions for each object.
+class ConsistencyLoss(torch.nn.Module):
+    """Computes variance across frame predictions for equivariance regularization.
     
-    This function calculates how consistent model predictions are across different
+    This loss function calculates how consistent model predictions are across different
     reference frames of the same structure. Lower variance means better equivariance.
-    
-    Args:
-        frame_predictions: List of tensors with predictions for each frame.
-                          Each tensor has shape [batch_size, output_dim].
-        normalize: Whether to normalize the loss by the squared magnitude of predictions.
-        
-    Returns:
-        Loss tensor (scalar) representing the mean variance across frames.
     """
-    # Add debug logging
-    num_frames = len(frame_predictions)
-    if num_frames == 0:
-        logger.error("empty_frame_predictions", len=0)
-        return torch.tensor(0.0, requires_grad=True)
+    def __init__(self, normalize=True):
+        """
+        Args:
+            normalize: Whether to normalize the loss by the squared magnitude of predictions.
+        """
+        super().__init__()
+        self.normalize = normalize
+        
+    def forward(self, frame_predictions):
+        """
+        Args:
+            frame_predictions: List of tensors with predictions for each frame.
+                              Each tensor has shape [batch_size, output_dim].
+        
+        Returns:
+            Loss tensor (scalar) representing the mean variance across frames.
+        """
+        # Validate input
+        num_frames = len(frame_predictions)
+        if num_frames == 0:
+            logger.error("empty_frame_predictions", len=0)
+            return torch.tensor(0.0, requires_grad=True, device=self._get_device(frame_predictions))
+        
+        # Stack predictions from all frames
+        preds = torch.stack(frame_predictions)  # shape: [num_frames, batch_size, output_dim]
+        
+        # Calculate variance across frames (dim=0) for each object independently
+        # Use unbiased=False to get the mathematical variance formula sum((x-mean)^2)/n
+        variance_per_object = torch.var(preds, dim=0, unbiased=False)  # shape: [batch_size, output_dim]
+        
+        # Average across the output dimension for each object
+        variance_per_object = variance_per_object.mean(dim=-1)  # shape: [batch_size]
+        
+        # Normalize by squared magnitude of predictions if requested
+        if self.normalize:
+            # Square of predictions, averaged across frames and output dimensions, plus small epsilon
+            norm_factor = (preds**2).mean(dim=[0, 2]) + 1e-6
+            variance_per_object = variance_per_object / norm_factor
+        
+        # Average across all objects in the batch
+        mean_variance = variance_per_object.mean()  # scalar
+        
+        return mean_variance
     
-    shapes = [f.shape for f in frame_predictions]
-    logger.warn("consistency_loss_input", 
-               num_frames=num_frames, 
-               shapes=str(shapes),
-               first_type=type(frame_predictions[0]).__name__)
-    
-    # Stack predictions from all frames
-    preds = torch.stack(frame_predictions)  # shape: [num_frames, batch_size, output_dim]
-    logger.warn("stacked_predictions", shape=str(preds.shape))
-    
-    # Calculate variance across frames (dim=0) for each object independently
-    # Use unbiased=False to get the mathematical variance formula sum((x-mean)^2)/n
-    # rather than the default PyTorch behavior which uses (n-1) in the denominator
-    variance_per_object = torch.var(preds, dim=0, unbiased=False)  # shape: [batch_size, output_dim]
-    
-    # Average across the output dimension for each object
-    variance_per_object = variance_per_object.mean(dim=-1)  # shape: [batch_size]
-    
-    # Normalize by squared magnitude of predictions if requested
-    if normalize:
-        # Square of predictions, averaged across frames and output dimensions, plus small epsilon
-        norm_factor = (preds**2).mean(dim=[0, 2]) + 1e-6
-        variance_per_object = variance_per_object / norm_factor
-    
-    # Average across all objects in the batch
-    mean_variance = variance_per_object.mean()  # scalar
-    logger.warn("consistency_loss_result", value=mean_variance.item())
-    
-    return mean_variance
+    def _get_device(self, frame_predictions):
+        """Helper to get the device from frame predictions."""
+        if not frame_predictions:
+            return torch.device('cpu')
+        return frame_predictions[0].device
+
+
+# Legacy function for backward compatibility
+def compute_consistency_loss(frame_predictions, normalize=True):
+    """Legacy function that uses ConsistencyLoss class."""
+    loss_fn = ConsistencyLoss(normalize=normalize)
+    return loss_fn(frame_predictions)
 
 
 def data_augmentation(g, d=3, *args):

@@ -1,3 +1,4 @@
+
 import os
 import torch
 import torch.nn as nn
@@ -17,6 +18,128 @@ from faenet.dataset import SlabDataset, apply_frame_averaging_to_batch
 from faenet.faenet import FAENet
 from faenet.config import get_config, Config
 from faenet.utils import generate_run_name
+
+
+def process_frames(model, batch, frame_averaging, fa_method):
+    """Process all frames of a batch and return outputs.
+    
+    Args:
+        model: FAENet model
+        batch: Input batch
+        frame_averaging: Frame averaging mode (2D or 3D)
+        fa_method: Frame averaging method
+        
+    Returns:
+        Dictionary of property -> list of frame predictions
+    """
+    # Apply frame averaging
+    batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
+    
+    # Create batch frames
+    from torch_geometric.data import Batch
+    
+    # Save original positions and cell
+    original_pos = batch.pos.clone()
+    original_cell = batch.cell.clone() if hasattr(batch, 'cell') and isinstance(batch.cell, torch.Tensor) else batch.cell
+    
+    # Process each frame
+    all_frames = []
+    num_frames = len(batch.fa_pos)
+    
+    for i in range(num_frames):
+        # Create a copy for this frame
+        frame_batch = batch.clone()
+        frame_batch.pos = batch.fa_pos[i]
+        if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
+            frame_batch.cell = batch.fa_cell[i]
+        all_frames.append(frame_batch)
+    
+    # Process all frames at once
+    combined_batch = Batch.from_data_list(all_frames)
+    all_preds = model(combined_batch)
+    
+    # Organize predictions by property and frame
+    frame_outputs = {prop: [] for prop in model.output_properties}
+    batch_size = batch.num_graphs
+    
+    for prop in model.output_properties:
+        prop_preds = all_preds[prop]
+        
+        # Split by frame
+        for i in range(num_frames):
+            start_idx = i * batch_size
+            end_idx = (i + 1) * batch_size
+            frame_outputs[prop].append(prop_preds[start_idx:end_idx])
+    
+    # Restore original positions and cell
+    batch.pos = original_pos
+    if hasattr(batch, 'cell') and batch.cell is not None:
+        batch.cell = original_cell
+    
+    return frame_outputs
+
+
+def compute_prediction_loss(frame_outputs, batch, output_properties, criterion):
+    """Compute prediction loss on averaged frame predictions.
+    
+    Args:
+        frame_outputs: Dictionary of property -> list of frame predictions
+        batch: Input batch
+        output_properties: List of output properties
+        criterion: Loss function
+        
+    Returns:
+        Total prediction loss
+    """
+    losses = []
+    
+    for prop in output_properties:
+        if hasattr(batch, prop) and prop in frame_outputs:
+            # Average predictions across frames
+            frames = frame_outputs[prop]
+            avg_pred = sum(frames) / len(frames)
+            targets = getattr(batch, prop)
+            
+            # Ensure tensors have compatible shapes
+            if avg_pred.dim() != targets.dim():
+                if avg_pred.dim() > targets.dim():
+                    avg_pred = avg_pred.squeeze()
+                else:
+                    targets = targets.unsqueeze(-1)
+            
+            # Calculate loss for this property
+            prop_loss = criterion(avg_pred, targets)
+            losses.append(prop_loss)
+    
+    # Sum all losses
+    return sum(losses) if losses else torch.tensor(0.0, device=batch.pos.device, requires_grad=True)
+
+
+def compute_frame_consistency_loss(frame_outputs, output_properties, consistency_criterion):
+    """Compute consistency loss across frames.
+    
+    Args:
+        frame_outputs: Dictionary of property -> list of frame predictions
+        output_properties: List of output properties
+        consistency_criterion: Consistency loss function
+        
+    Returns:
+        Total consistency loss
+    """
+    consistency_losses = []
+    
+    for prop in output_properties:
+        if prop in frame_outputs:
+            frames = frame_outputs[prop]
+            if frames:
+                try:
+                    prop_consistency = consistency_criterion(frames)
+                    consistency_losses.append(prop_consistency)
+                except Exception as e:
+                    logger.error("consistency_loss_error", property=prop, error=str(e))
+    
+    # Sum all consistency losses
+    return sum(consistency_losses) if consistency_losses else torch.tensor(0.0, device=frame_outputs[output_properties[0]][0].device, requires_grad=True)
 
 
 def train(model, train_loader, val_loader, device, config):
@@ -40,8 +163,17 @@ def train(model, train_loader, val_loader, device, config):
     # Optimizer (use weight_decay if specified)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=config.weight_decay if hasattr(config, 'weight_decay') else 0.0)
     
-    # Loss function
+    # Loss functions
     criterion = nn.MSELoss()
+    
+    # Create the consistency loss function if enabled
+    consistency_enabled = hasattr(config, 'consistency_loss') and config.consistency_loss
+    if consistency_enabled:
+        from faenet.frame_averaging import ConsistencyLoss
+        consistency_criterion = ConsistencyLoss(normalize=config.consistency_norm)
+        logger.info("consistency_loss_enabled", weight=config.consistency_weight, normalize=config.consistency_norm)
+    else:
+        logger.info("consistency_loss_disabled")
     
     # Learning rate scheduler
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -111,25 +243,26 @@ def train(model, train_loader, val_loader, device, config):
                 if hasattr(batch, 'cell') and batch.cell is not None:
                     batch.cell = original_cell
                 
-                # Calculate loss by averaging predictions across frames
-                loss = 0
+                # Initialize list to collect loss components
+                main_losses = []
                 
-                # Initialize consistency loss if enabled - add detailed debug logging
-                consistency_loss = None
-                logger.warn("consistency_loss_check", 
+                # Initialize list for consistency losses
+                consistency_losses = []
+                logger.info("consistency_loss_check", 
                            has_attribute=hasattr(config, 'consistency_loss'),
                            config_value=config.consistency_loss if hasattr(config, 'consistency_loss') else None,
-                           config_type=type(config).__name__,
-                           config_dict=str(config.model_dump() if hasattr(config, 'model_dump') else vars(config)))
+                           config_type=type(config).__name__)
                 
-                if hasattr(config, 'consistency_loss') and config.consistency_loss:
+                # Check if consistency loss is enabled
+                consistency_enabled = hasattr(config, 'consistency_loss') and config.consistency_loss
+                
+                if consistency_enabled:
                     from faenet.frame_averaging import compute_consistency_loss
-                    consistency_loss = 0
-                    logger.warn("consistency_loss_enabled", 
+                    logger.info("consistency_loss_enabled", 
                                weight=config.consistency_weight,
                                normalize=config.consistency_norm)
                 else:
-                    logger.warn("consistency_loss_disabled", 
+                    logger.info("consistency_loss_disabled", 
                                reason="Configuration parameter is not True" if hasattr(config, 'consistency_loss') else "Config doesn't have consistency_loss attribute")
                 
                 for prop_idx, prop in enumerate(model.output_properties):
@@ -147,48 +280,55 @@ def train(model, train_loader, val_loader, device, config):
                         
                         # Calculate loss for this property
                         prop_loss = criterion(avg_pred, targets)
-                        loss += prop_loss
+                        main_losses.append(prop_loss)
                         
                         # Calculate consistency loss if enabled
-                        if consistency_loss is not None:
-                            # Debug e_all structure to see what's happening
+                        if consistency_enabled:
+                            # Log frame structure information for debugging
                             num_frames = len(e_all[prop_idx])
                             first_shape = e_all[prop_idx][0].shape if num_frames > 0 else "empty"
-                            logger.warn("e_all_structure", 
+                            logger.debug("e_all_structure", 
                                       property=prop,
                                       num_frames=num_frames, 
-                                      first_frame_shape=str(first_shape),
-                                      e_all_type=type(e_all[prop_idx]).__name__)
+                                      first_frame_shape=str(first_shape))
                             
                             try:
+                                # Calculate consistency loss for this property
                                 prop_consistency = compute_consistency_loss(
                                     e_all[prop_idx], 
                                     normalize=config.consistency_norm
                                 )
-                                consistency_loss += prop_consistency
-                                logger.warn("property_consistency_loss_calculated", 
+                                # Add to list of consistency losses
+                                consistency_losses.append(prop_consistency)
+                                logger.debug("property_consistency_loss_calculated", 
                                            property=prop, 
-                                           value=prop_consistency.item())
+                                           value=prop_consistency.detach().item())
                             except Exception as e:
                                 logger.error("consistency_loss_error",
                                             property=prop,
                                             error=str(e),
                                             traceback=traceback.format_exc())
                 
+                # Sum main losses
+                loss = sum(main_losses) if main_losses else torch.tensor(0.0, device=device, requires_grad=True)
+                
                 # Add weighted consistency loss to total loss if enabled
-                if consistency_loss is not None:
-                    loss += config.consistency_weight * consistency_loss
+                if consistency_losses and consistency_enabled:
+                    # Sum all consistency losses
+                    consistency_loss = sum(consistency_losses)
+                    
+                    # Add weighted consistency loss to total loss
+                    loss = loss + config.consistency_weight * consistency_loss
                     
                     # Log metrics if MLflow is enabled
                     if hasattr(config, 'use_mlflow') and config.use_mlflow:
                         try:
-                            metric_value = consistency_loss.item()
+                            metric_value = consistency_loss.detach().item()
                             # Log with two different metric names to ensure compatibility
                             mlflow.log_metric("consistency_loss", metric_value, step=epoch)
                             mlflow.log_metric("train_consistency_loss", metric_value, step=epoch)
-                            logger.warn("consistency_metric_logged", 
-                                      value=metric_value, 
-                                      mlflow_enabled=config.use_mlflow)
+                            logger.info("consistency_metric_logged", 
+                                      value=metric_value)
                         except Exception as e:
                             logger.error("mlflow_logging_error",
                                        error=str(e),
@@ -285,14 +425,16 @@ def train(model, train_loader, val_loader, device, config):
                     if hasattr(batch, 'cell') and batch.cell is not None:
                         batch.cell = original_cell
                     
-                    # Calculate validation loss
-                    batch_loss = 0
+                    # Initialize list to collect validation loss components
+                    val_main_losses = []
                     
-                    # Initialize consistency loss if enabled
-                    val_consistency_loss = None
-                    if hasattr(config, 'consistency_loss') and config.consistency_loss:
+                    # Initialize list for consistency losses
+                    val_consistency_losses = []
+                    
+                    # Check if consistency loss is enabled
+                    val_consistency_enabled = hasattr(config, 'consistency_loss') and config.consistency_loss
+                    if val_consistency_enabled:
                         from faenet.frame_averaging import compute_consistency_loss
-                        val_consistency_loss = 0
                     
                     for prop_idx, prop in enumerate(model.output_properties):
                         if hasattr(batch, prop):
@@ -308,23 +450,30 @@ def train(model, train_loader, val_loader, device, config):
                                     targets = targets.unsqueeze(-1)
                             
                             prop_val_loss = criterion(avg_pred, targets)
-                            batch_loss += prop_val_loss
+                            val_main_losses.append(prop_val_loss)
                             
                             # Calculate consistency loss if enabled
-                            if val_consistency_loss is not None:
+                            if val_consistency_enabled:
                                 prop_consistency = compute_consistency_loss(
                                     e_all[prop_idx], 
                                     normalize=config.consistency_norm
                                 )
-                                val_consistency_loss += prop_consistency
+                                val_consistency_losses.append(prop_consistency)
+                    
+                    # Sum validation losses
+                    batch_loss = sum(val_main_losses) if val_main_losses else torch.tensor(0.0, device=device)
                     
                     # Add weighted consistency loss to total loss if enabled
-                    if val_consistency_loss is not None:
-                        batch_loss += config.consistency_weight * val_consistency_loss
+                    if val_consistency_losses and val_consistency_enabled:
+                        # Sum all consistency losses
+                        val_consistency_loss = sum(val_consistency_losses)
+                        
+                        # Add weighted consistency loss to total loss
+                        batch_loss = batch_loss + config.consistency_weight * val_consistency_loss
                         
                         # Log metrics if MLflow is enabled
                         if hasattr(config, 'use_mlflow') and config.use_mlflow:
-                            mlflow.log_metric("val_consistency_loss", val_consistency_loss.item(), step=epoch)
+                            mlflow.log_metric("val_consistency_loss", val_consistency_loss.detach().item(), step=epoch)
                 else:
                     # Standard forward pass
                     preds = model(batch)
@@ -844,14 +993,16 @@ def train_faenet(
                         if hasattr(batch, 'cell') and batch.cell is not None:
                             batch.cell = original_cell
                         
-                        # Calculate test loss
-                        batch_loss = 0
+                        # Initialize list to collect test loss components
+                        test_main_losses = []
                         
-                        # Initialize consistency loss if enabled
-                        test_consistency_loss = None
-                        if hasattr(config, 'consistency_loss') and config.consistency_loss:
+                        # Initialize list for consistency losses
+                        test_consistency_losses = []
+                        
+                        # Check if consistency loss is enabled
+                        test_consistency_enabled = hasattr(config, 'consistency_loss') and config.consistency_loss
+                        if test_consistency_enabled:
                             from faenet.frame_averaging import compute_consistency_loss
-                            test_consistency_loss = 0
                         
                         for prop_idx, prop in enumerate(model.output_properties):
                             if hasattr(batch, prop):
@@ -867,23 +1018,30 @@ def train_faenet(
                                         targets = targets.unsqueeze(-1)
                                 
                                 prop_test_loss = criterion(avg_pred, targets)
-                                batch_loss += prop_test_loss
+                                test_main_losses.append(prop_test_loss)
                                 
                                 # Calculate consistency loss if enabled
-                                if test_consistency_loss is not None:
+                                if test_consistency_enabled:
                                     prop_consistency = compute_consistency_loss(
                                         e_all[prop_idx], 
                                         normalize=config.consistency_norm
                                     )
-                                    test_consistency_loss += prop_consistency
+                                    test_consistency_losses.append(prop_consistency)
+                        
+                        # Sum test losses
+                        batch_loss = sum(test_main_losses) if test_main_losses else torch.tensor(0.0, device=device)
                         
                         # Add weighted consistency loss to total loss if enabled
-                        if test_consistency_loss is not None:
-                            batch_loss += config.consistency_weight * test_consistency_loss
+                        if test_consistency_losses and test_consistency_enabled:
+                            # Sum all consistency losses
+                            test_consistency_loss = sum(test_consistency_losses)
+                            
+                            # Add weighted consistency loss to total loss
+                            batch_loss = batch_loss + config.consistency_weight * test_consistency_loss
                             
                             # Log metrics if MLflow is enabled
                             if hasattr(config, 'use_mlflow') and config.use_mlflow:
-                                mlflow.log_metric("test_consistency_loss", test_consistency_loss.item())
+                                mlflow.log_metric("test_consistency_loss", test_consistency_loss.detach().item())
                     else:
                         # Standard forward pass
                         preds = model(batch)

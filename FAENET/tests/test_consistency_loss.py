@@ -93,6 +93,49 @@ class TestConsistencyLoss(unittest.TestCase):
         for pred in preds:
             self.assertIsNotNone(pred.grad)
             self.assertNotEqual(pred.grad.item(), 0.0)
+    
+    def test_loss_accumulation(self):
+        """Test loss accumulation with multiple properties using the list approach."""
+        # Create prediction tensors for multiple properties
+        prop1_preds = [torch.tensor([[1.0], [2.0]], requires_grad=True) for _ in range(3)]
+        prop2_preds = [torch.tensor([[3.0], [4.0]], requires_grad=True) for _ in range(3)]
+        
+        # Initialize list to collect consistency losses
+        consistency_losses = []
+        
+        # Calculate consistency loss for each property
+        consistency_losses.append(compute_consistency_loss(prop1_preds))
+        consistency_losses.append(compute_consistency_loss(prop2_preds))
+        
+        # Sum all consistency losses
+        total_consistency_loss = sum(consistency_losses)
+        
+        # Check that the total loss requires gradients
+        self.assertTrue(total_consistency_loss.requires_grad)
+        
+        # Create a dummy main loss
+        main_loss = torch.tensor(1.0, requires_grad=True)
+        
+        # Add weighted consistency loss to main loss
+        weight = 0.1
+        total_loss = main_loss + weight * total_consistency_loss
+        
+        # Check that the combined loss requires gradients
+        self.assertTrue(total_loss.requires_grad)
+        
+        # Backpropagate
+        total_loss.backward()
+        
+        # Check that gradients propagated to all tensors
+        for pred in prop1_preds + prop2_preds:
+            self.assertIsNotNone(pred.grad)
+        
+        # Try logging the loss value - ensure this doesn't break anything
+        try:
+            loss_value = total_loss.detach().item()
+            self.assertIsInstance(loss_value, float)
+        except Exception as e:
+            self.fail(f"Failed to extract loss value with detach().item(): {str(e)}")
 
 
 if __name__ == "__main__":
