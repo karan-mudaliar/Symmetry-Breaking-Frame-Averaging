@@ -7,6 +7,7 @@ import sys
 import torch
 import unittest
 import structlog
+from torch_geometric.data import Batch
 
 # Configure logging
 logger = structlog.get_logger()
@@ -15,6 +16,14 @@ logger = structlog.get_logger()
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from faenet.frame_averaging import ConsistencyLoss
+from faenet.dataset import SlabDataset, apply_frame_averaging_to_batch
+from faenet.faenet import FAENet
+
+# Use an absolute path to the test data file
+TEST_DATA_PATH = os.path.abspath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 
+    "..", "test_data", "surface_prop_data_set_top_bottom.csv"
+))
 
 class ConsistencyLossTest(unittest.TestCase):
     """Tests for the ConsistencyLoss implementation."""
@@ -124,6 +133,131 @@ class ConsistencyLossTest(unittest.TestCase):
         # All tensors should have gradients
         for frame in prop1_frames + prop2_frames:
             self.assertIsNotNone(frame.grad)
+
+
+    def test_with_real_data(self):
+        """Test consistency loss with real data from the test dataset."""
+        # Check if test data exists
+        if not os.path.exists(TEST_DATA_PATH):
+            self.skipTest("Test data file not found")
+        
+        print("\n=== Testing Consistency Loss with Real Data ===\n")
+        
+        try:
+            # Load the test dataset
+            dataset = SlabDataset(
+                data_source=TEST_DATA_PATH,
+                structure_col="slab",
+                target_props=["WF_top", "WF_bottom"],
+                cutoff=6.0,
+                max_neighbors=20,
+                pbc=True
+            )
+            print(f"Loaded test dataset with {len(dataset)} samples")
+            
+            # Take first two samples to create a batch
+            data_samples = [dataset[0], dataset[1]]
+            batch = Batch.from_data_list(data_samples)
+            device = torch.device("cpu")
+            batch = batch.to(device)
+            
+            # Apply frame averaging (2D)
+            frame_averaging = "2D"
+            fa_method = "all"
+            batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
+            
+            # Create a simple model for testing
+            model = FAENet(
+                cutoff=6.0,
+                num_gaussians=10,
+                hidden_channels=32,
+                num_filters=32,
+                num_interactions=1,
+                output_properties=["WF_top", "WF_bottom"]
+            ).to(device)
+            model.train()  # Set to training mode
+            
+            # Process each frame separately
+            all_frames = []
+            for i in range(len(batch.fa_pos)):
+                # Create frame batch
+                frame_batch = batch.clone()
+                frame_batch.pos = batch.fa_pos[i]
+                all_frames.append(frame_batch)
+            
+            # Create combined batch with all frames
+            combined_batch = Batch.from_data_list(all_frames)
+            
+            # Forward pass
+            outputs = model(combined_batch)
+            
+            # Organize by property and frame
+            frame_outputs = {}
+            batch_size = batch.num_graphs
+            num_frames = len(batch.fa_pos)
+            
+            for prop in model.output_properties:
+                frame_outputs[prop] = []
+                
+                # Get predictions for this property
+                prop_preds = outputs[prop]
+                
+                # Split by frame
+                for i in range(num_frames):
+                    start_idx = i * batch_size
+                    end_idx = (i + 1) * batch_size
+                    frame_outputs[prop].append(prop_preds[start_idx:end_idx])
+            
+            # Create consistency loss module
+            consistency_loss = ConsistencyLoss(normalize=True)
+            
+            # Calculate loss for each property
+            for prop in model.output_properties:
+                # Get frame predictions for this property
+                frames = frame_outputs[prop]
+                
+                # Calculate consistency loss
+                loss = consistency_loss(frames)
+                
+                # Should be a tensor
+                self.assertTrue(torch.is_tensor(loss))
+                self.assertTrue(loss.requires_grad)
+                
+                # Test backward pass
+                loss.backward(retain_graph=True)
+                
+                print(f"Consistency loss for {prop}: {loss.item()}")
+            
+            # Test combined loss for all properties
+            all_losses = []
+            
+            # Reset gradients
+            model.zero_grad()
+            
+            for prop in model.output_properties:
+                loss = consistency_loss(frame_outputs[prop])
+                all_losses.append(loss)
+            
+            # Combined loss
+            combined_loss = sum(all_losses)
+            
+            # Backward pass
+            combined_loss.backward()
+            
+            # Verify parameter gradients
+            has_grad = False
+            for param in model.parameters():
+                if param.grad is not None and torch.sum(torch.abs(param.grad)) > 0:
+                    has_grad = True
+                    break
+            
+            self.assertTrue(has_grad, "Model parameters should have gradients")
+            
+            print("✅ Consistency loss test with real data passed!")
+            
+        except Exception as e:
+            import traceback
+            self.fail(f"Test with real data failed: {e}\n{traceback.format_exc()}")
 
 
 if __name__ == "__main__":
