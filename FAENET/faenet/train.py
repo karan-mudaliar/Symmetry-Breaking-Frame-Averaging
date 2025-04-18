@@ -764,6 +764,24 @@ def train_faenet(
                consistency_loss_value=model_kwargs.get('consistency_loss', 'Not Present'),
                kwargs_keys=list(model_kwargs.keys()))
     
+    # Map from the Literal options to actual properties to use
+    if target_properties == "WF_top":
+        target_props = ["WF_top"]
+    elif target_properties == "WF_bottom":
+        target_props = ["WF_bottom"]
+    elif target_properties == "cleavage_energy":
+        target_props = ["cleavage_energy"]
+    elif target_properties == "WF":
+        target_props = ["WF_top", "WF_bottom"]
+    elif isinstance(target_properties, list):
+        target_props = target_properties
+    elif isinstance(target_properties, dict):
+        target_props = list(target_properties.keys())
+    else:
+        target_props = ["energy"]
+    
+    logger.info("target_properties_mapped", choice=target_properties, mapped_to=target_props)
+    
     # Create a dictionary with ONLY the allowed model parameters
     model_args = {k: model_kwargs[k] for k in faenet_params if k in model_kwargs}
     model_args['cutoff'] = cutoff  # Always include cutoff
@@ -812,7 +830,7 @@ def train_faenet(
         'run_name': run_name,
         'data_path': data_path,
         'structure_col': structure_col,
-        'target_properties': target_properties,  # Explicitly include target_properties
+        'target_properties': target_props,  # Use the mapped properties
         
         # Explicitly include consistency loss parameters
         'consistency_loss': consistency_loss_enabled,
@@ -833,7 +851,7 @@ def train_faenet(
     dataset = SlabDataset(
         data_source=data_path,
         structure_col=structure_col,
-        target_props=target_properties,
+        target_props=target_props,  # Use the mapped properties
         cutoff=cutoff,
         max_neighbors=max_neighbors,
         pbc=pbc,
@@ -873,21 +891,8 @@ def train_faenet(
         num_workers=num_workers
     )
     
-    # Determine output properties from dataset's target_properties rather than parameter
-    # This ensures we use what the dataset actually loaded from the CSV
-    if hasattr(dataset, 'target_properties') and dataset.target_properties:
-        # Get properties that actually exist in the dataset
-        output_properties = list(dataset.target_properties.keys())
-        logger.info("using_dataset_properties", properties=output_properties)
-    elif isinstance(target_properties, list):
-        output_properties = target_properties
-        logger.info("using_parameter_properties", properties=output_properties)
-    elif isinstance(target_properties, dict):
-        output_properties = list(target_properties.keys())
-        logger.info("using_parameter_dict_keys", properties=output_properties)
-    else:
-        output_properties = ["energy"]
-        logger.info("using_default_property", property="energy")
+    # Use the previously mapped target properties for the model
+    output_properties = target_props
     
     # Initialize model with clean model_args
     # If output_properties isn't in model_args, add it from the local variable
