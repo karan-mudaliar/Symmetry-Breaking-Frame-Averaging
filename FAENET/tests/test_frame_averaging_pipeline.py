@@ -90,7 +90,7 @@ class TestFrameAveragingPipeline(unittest.TestCase):
         
         # Check dataset lengths
         print(f"Dataset size: {len(dataset_2d)} structures")
-        self.assertGreater(len(dataset_2d), 0, "Dataset should have at least one structure")
+        self.assertGreater(len(dataset_2d), 0, msg="Dataset should have at least one structure")
         
         # Verify each dataset produces the expected frame attributes
         if len(dataset_2d) > 0:
@@ -100,21 +100,21 @@ class TestFrameAveragingPipeline(unittest.TestCase):
             data_no_fa = dataset_no_fa[0]
             
             # Check 2D frame averaging
-            self.assertTrue(hasattr(data_2d, 'fa_pos'), "Data should have frame averaged positions")
-            self.assertTrue(hasattr(data_2d, 'fa_cell'), "Data should have frame averaged cell")
-            self.assertTrue(hasattr(data_2d, 'fa_rot'), "Data should have rotation matrices")
+            self.assertTrue(hasattr(data_2d, 'fa_pos'), msg="Data should have frame averaged positions")
+            self.assertTrue(hasattr(data_2d, 'fa_cell'), msg="Data should have frame averaged cell")
+            self.assertTrue(hasattr(data_2d, 'fa_rot'), msg="Data should have rotation matrices")
             
             # Check correct number of frames
-            self.assertEqual(len(data_2d.fa_pos), 4, "2D frame averaging should produce 4 frames")
-            self.assertEqual(len(data_3d.fa_pos), 8, "3D frame averaging should produce 8 frames")
+            self.assertEqual(len(data_2d.fa_pos), 4, msg="2D frame averaging should produce 4 frames")
+            self.assertEqual(len(data_3d.fa_pos), 8, msg="3D frame averaging should produce 8 frames")
             
             # Check no frame averaging dataset doesn't have these attributes
-            self.assertFalse(hasattr(data_no_fa, 'fa_pos'), "Data without frame averaging should not have fa_pos")
+            self.assertFalse(hasattr(data_no_fa, 'fa_pos'), msg="Data without frame averaging should not have fa_pos")
             
             # Check that 2D frame averaging preserves z-coordinates
             z_preserved = all(torch.allclose(data_2d.fa_pos[i][:, 2], data_2d.pos[:, 2], atol=1e-5) 
                              for i in range(len(data_2d.fa_pos)))
-            self.assertTrue(z_preserved, "2D frame averaging should preserve z-axis coordinates")
+            self.assertTrue(z_preserved, msg="2D frame averaging should preserve z-axis coordinates")
             
             print("✅ Dataset frame averaging checks passed!")
     
@@ -147,16 +147,16 @@ class TestFrameAveragingPipeline(unittest.TestCase):
         batch_3d = apply_frame_averaging_to_batch(batch.clone(), "all", "3D")
         
         # Verify frame averaging attributes
-        self.assertTrue(hasattr(batch_2d, 'fa_pos'), "Batch should have frame averaged positions")
-        self.assertTrue(hasattr(batch_2d, 'fa_cell'), "Batch should have frame averaged cell")
-        self.assertTrue(hasattr(batch_2d, 'fa_rot'), "Batch should have rotation matrices")
+        self.assertTrue(hasattr(batch_2d, 'fa_pos'), msg="Batch should have frame averaged positions")
+        self.assertTrue(hasattr(batch_2d, 'fa_cell'), msg="Batch should have frame averaged cell")
+        self.assertTrue(hasattr(batch_2d, 'fa_rot'), msg="Batch should have rotation matrices")
         
         # Check correct number of frames
-        self.assertEqual(len(batch_2d.fa_pos), 4, "2D frame averaging should produce 4 frames")
-        self.assertEqual(len(batch_3d.fa_pos), 8, "3D frame averaging should produce 8 frames")
+        self.assertEqual(len(batch_2d.fa_pos), 4, msg="2D frame averaging should produce 4 frames")
+        self.assertEqual(len(batch_3d.fa_pos), 8, msg="3D frame averaging should produce 8 frames")
         
         # Check original batch is unchanged
-        self.assertFalse(hasattr(batch, 'fa_pos'), "Original batch should not have fa_pos")
+        self.assertFalse(hasattr(batch, 'fa_pos'), msg="Original batch should not have fa_pos")
         
         print("✅ Batch frame averaging checks passed!")
     
@@ -211,21 +211,21 @@ class TestFrameAveragingPipeline(unittest.TestCase):
             frame_outputs = process_frames(model, batch_fa, frame_averaging, fa_method)
             
             # Check outputs
-            self.assertIsInstance(frame_outputs, dict, "Frame outputs should be a dictionary")
+            self.assertIsInstance(frame_outputs, dict, msg="Frame outputs should be a dictionary")
             
             # Check that we have outputs for each property
             for prop in model.target_properties:
-                self.assertIn(prop, frame_outputs, f"Frame outputs should contain {prop}")
+                self.assertIn(prop, frame_outputs, msg=f"Frame outputs should contain {prop}")
                 
                 # Check that we have the correct number of frames
                 expected_frames = 4 if frame_averaging == "2D" else 8
                 self.assertEqual(len(frame_outputs[prop]), expected_frames, 
-                                f"{frame_averaging} frame averaging should produce {expected_frames} frames")
+                                msg=f"{frame_averaging} frame averaging should produce {expected_frames} frames")
                 
                 # Check that each frame has the correct batch size
                 for frame in frame_outputs[prop]:
                     self.assertEqual(frame.size(0), batch.num_graphs, 
-                                    "Each frame should have predictions for the entire batch")
+                                    msg="Each frame should have predictions for the entire batch")
             
             print(f"✅ Process frames with {frame_averaging} frame averaging passed!")
             
@@ -252,18 +252,29 @@ class TestFrameAveragingPipeline(unittest.TestCase):
         loss_varying = consistency_loss_fn(varying_preds)
         
         # Verify loss values
-        self.assertAlmostEqual(loss_consistent.item(), 0.0, places=5, 
-                              "Consistent predictions should have zero consistency loss")
-        self.assertGreater(loss_varying.item(), 0.0, 
-                          "Varying predictions should have positive consistency loss")
+        self.assertAlmostEqual(
+            loss_consistent.item(), 
+            0.0,
+            msg="Consistent predictions should have zero consistency loss",
+            places=5
+        )
+        self.assertGreater(
+            loss_varying.item(), 
+            0.0,
+            msg="Varying predictions should have positive consistency loss"
+        )
         
         # Test backwards compatibility function
         loss_consistent_legacy = compute_consistency_loss(consistent_preds, normalize=True)
         loss_varying_legacy = compute_consistency_loss(varying_preds, normalize=True)
         
         # Verify they give the same results
-        self.assertAlmostEqual(loss_consistent.item(), loss_consistent_legacy.item(), places=5, 
-                               "Legacy function should match class implementation")
+        self.assertAlmostEqual(
+            loss_consistent.item(),
+            loss_consistent_legacy.item(),
+            msg="Legacy function should match class implementation",
+            places=5
+        )
         
         # Test computing frame consistency loss with multiple properties
         frame_outputs = {
@@ -277,8 +288,11 @@ class TestFrameAveragingPipeline(unittest.TestCase):
         total_loss = compute_frame_consistency_loss(frame_outputs, target_properties, consistency_loss_fn)
         
         # Verify that the total loss is positive (due to varying predictions in WF_bottom)
-        self.assertGreater(total_loss.item(), 0.0, 
-                          "Total consistency loss should be positive when one property varies")
+        self.assertGreater(
+            total_loss.item(),
+            0.0,
+            msg="Total consistency loss should be positive when one property varies"
+        )
         
         print("✅ Consistency loss checks passed!")
     
@@ -310,7 +324,7 @@ class TestFrameAveragingPipeline(unittest.TestCase):
         total_loss = compute_prediction_loss(frame_outputs, batch, ["WF_top", "WF_bottom"], criterion)
         
         # Verify loss value (should depend on MSE between average predictions and targets)
-        self.assertGreater(total_loss.item(), 0.0, "Prediction loss should be positive")
+        self.assertGreater(total_loss.item(), 0.0, msg="Prediction loss should be positive")
         
         # Create batch with only one property
         batch_single = Data()
@@ -321,7 +335,7 @@ class TestFrameAveragingPipeline(unittest.TestCase):
         single_loss = compute_prediction_loss(frame_outputs, batch_single, ["WF_top"], criterion)
         
         # Verify loss is still calculated correctly
-        self.assertGreater(single_loss.item(), 0.0, "Single property prediction loss should be positive")
+        self.assertGreater(single_loss.item(), 0.0, msg="Single property prediction loss should be positive")
         
         print("✅ Prediction loss checks passed!")
         
@@ -375,25 +389,28 @@ class TestFrameAveragingPipeline(unittest.TestCase):
             
             # Verify the model was saved
             best_model_path = os.path.join(config.output_dir, "best_model.pt")
-            self.assertTrue(os.path.exists(best_model_path), f"Best model was not saved to {best_model_path}")
+            self.assertTrue(os.path.exists(best_model_path), msg=f"Best model was not saved to {best_model_path}")
             
             # Check that predictions file was created
             predictions_path = os.path.join(config.output_dir, "test_predictions.json")
-            self.assertTrue(os.path.exists(predictions_path), f"Predictions file was not saved to {predictions_path}")
+            self.assertTrue(os.path.exists(predictions_path), msg=f"Predictions file was not saved to {predictions_path}")
             
             # Check that model has correct target properties
-            self.assertListEqual(model.target_properties, ["WF_top", "WF_bottom"], 
-                               "Model should have WF_top and WF_bottom as target properties")
+            self.assertListEqual(
+                model.target_properties,
+                ["WF_top", "WF_bottom"],
+                msg="Model should have WF_top and WF_bottom as target properties"
+            )
             
             # Check that we have predictions for train/val/test data
             train_preds_path = os.path.join(config.output_dir, "train_predictions.json")
             val_preds_path = os.path.join(config.output_dir, "val_predictions.json")
-            self.assertTrue(os.path.exists(train_preds_path), f"Train predictions file not found at {train_preds_path}")
-            self.assertTrue(os.path.exists(val_preds_path), f"Val predictions file not found at {val_preds_path}")
+            self.assertTrue(os.path.exists(train_preds_path), msg=f"Train predictions file not found at {train_preds_path}")
+            self.assertTrue(os.path.exists(val_preds_path), msg=f"Val predictions file not found at {val_preds_path}")
             
             # Check combined predictions file
             combined_preds_path = os.path.join(config.output_dir, "all_predictions.json")
-            self.assertTrue(os.path.exists(combined_preds_path), f"Combined predictions file not found at {combined_preds_path}")
+            self.assertTrue(os.path.exists(combined_preds_path), msg=f"Combined predictions file not found at {combined_preds_path}")
             
             # Verify model predictions
             # Load a batch from the test loader
@@ -412,22 +429,22 @@ class TestFrameAveragingPipeline(unittest.TestCase):
                 
                 # Check frame outputs
                 for prop in model.target_properties:
-                    self.assertIn(prop, frame_outputs, f"Frame outputs should contain {prop}")
-                    self.assertEqual(len(frame_outputs[prop]), 4, "2D frame averaging should produce 4 frames")
+                    self.assertIn(prop, frame_outputs, msg=f"Frame outputs should contain {prop}")
+                    self.assertEqual(len(frame_outputs[prop]), 4, msg="2D frame averaging should produce 4 frames")
                 
                 # Calculate consistency loss
                 consistency_loss_fn = ConsistencyLoss(normalize=True)
                 consistency_loss = compute_frame_consistency_loss(frame_outputs, model.target_properties, consistency_loss_fn)
                 
                 # Verify consistency loss
-                self.assertGreater(consistency_loss.item(), 0.0, "Consistency loss should be positive")
+                self.assertGreater(consistency_loss.item(), 0.0, msg="Consistency loss should be positive")
                 
                 # Calculate prediction loss
                 criterion = torch.nn.MSELoss()
                 pred_loss = compute_prediction_loss(frame_outputs, batch, model.target_properties, criterion)
                 
                 # Verify prediction loss
-                self.assertGreater(pred_loss.item(), 0.0, "Prediction loss should be positive")
+                self.assertGreater(pred_loss.item(), 0.0, msg="Prediction loss should be positive")
             
             print("✅ End-to-end training with frame averaging passed!")
             
@@ -458,8 +475,11 @@ class TestFrameAveragingPipeline(unittest.TestCase):
         # Expected counts for 2D
         expected_2d = {"all": 4, "det": 1, "random": 1}
         for method, expected in expected_2d.items():
-            self.assertEqual(counts_2d[method], expected, 
-                           f"2D frame averaging with {method} should produce {expected} frames, got {counts_2d[method]}")
+            self.assertEqual(
+                counts_2d[method],
+                expected,
+                msg=f"2D frame averaging with {method} should produce {expected} frames, got {counts_2d[method]}"
+            )
         
         # Test 3D frame averaging
         fa_methods_3d = ["all", "det", "random"]
@@ -468,8 +488,11 @@ class TestFrameAveragingPipeline(unittest.TestCase):
         # Expected counts for 3D
         expected_3d = {"all": 8, "det": 1, "random": 1}
         for method, expected in expected_3d.items():
-            self.assertEqual(counts_3d[method], expected, 
-                           f"3D frame averaging with {method} should produce {expected} frames, got {counts_3d[method]}")
+            self.assertEqual(
+                counts_3d[method],
+                expected,
+                msg=f"3D frame averaging with {method} should produce {expected} frames, got {counts_3d[method]}"
+            )
         
         print("✅ Frame count checks passed!")
         print(f"2D frame counts: {counts_2d}")
