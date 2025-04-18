@@ -830,7 +830,7 @@ def train_faenet(
         'run_name': run_name,
         'data_path': data_path,
         'structure_col': structure_col,
-        'target_properties': target_props,  # Use the mapped properties
+        'target_properties': target_properties,  # Keep the original string Literal
         
         # Explicitly include consistency loss parameters
         'consistency_loss': consistency_loss_enabled,
