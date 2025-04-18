@@ -59,10 +59,10 @@ def process_frames(model, batch, frame_averaging, fa_method):
     all_preds = model(combined_batch)
     
     # Organize predictions by property and frame
-    frame_outputs = {prop: [] for prop in model.output_properties}
+    frame_outputs = {prop: [] for prop in model.target_properties}
     batch_size = batch.num_graphs
     
-    for prop in model.output_properties:
+    for prop in model.target_properties:
         prop_preds = all_preds[prop]
         
         # Split by frame
@@ -79,13 +79,13 @@ def process_frames(model, batch, frame_averaging, fa_method):
     return frame_outputs
 
 
-def compute_prediction_loss(frame_outputs, batch, output_properties, criterion):
+def compute_prediction_loss(frame_outputs, batch, target_properties, criterion):
     """Compute prediction loss on averaged frame predictions.
     
     Args:
         frame_outputs: Dictionary of property -> list of frame predictions
         batch: Input batch
-        output_properties: List of output properties
+        target_properties: List of target properties
         criterion: Loss function
         
     Returns:
@@ -93,7 +93,7 @@ def compute_prediction_loss(frame_outputs, batch, output_properties, criterion):
     """
     losses = []
     
-    for prop in output_properties:
+    for prop in target_properties:
         if hasattr(batch, prop) and prop in frame_outputs:
             # Average predictions across frames
             frames = frame_outputs[prop]
@@ -115,12 +115,12 @@ def compute_prediction_loss(frame_outputs, batch, output_properties, criterion):
     return sum(losses) if losses else torch.tensor(0.0, device=batch.pos.device, requires_grad=True)
 
 
-def compute_frame_consistency_loss(frame_outputs, output_properties, consistency_criterion):
+def compute_frame_consistency_loss(frame_outputs, target_properties, consistency_criterion):
     """Compute consistency loss across frames.
     
     Args:
         frame_outputs: Dictionary of property -> list of frame predictions
-        output_properties: List of output properties
+        target_properties: List of target properties
         consistency_criterion: Consistency loss function
         
     Returns:
@@ -128,7 +128,7 @@ def compute_frame_consistency_loss(frame_outputs, output_properties, consistency
     """
     consistency_losses = []
     
-    for prop in output_properties:
+    for prop in target_properties:
         if prop in frame_outputs:
             frames = frame_outputs[prop]
             if frames:
@@ -139,7 +139,7 @@ def compute_frame_consistency_loss(frame_outputs, output_properties, consistency
                     logger.error("consistency_loss_error", property=prop, error=str(e))
     
     # Sum all consistency losses
-    return sum(consistency_losses) if consistency_losses else torch.tensor(0.0, device=frame_outputs[output_properties[0]][0].device, requires_grad=True)
+    return sum(consistency_losses) if consistency_losses else torch.tensor(0.0, device=frame_outputs[target_properties[0]][0].device, requires_grad=True)
 
 
 def train(model, train_loader, val_loader, device, config):
@@ -222,13 +222,13 @@ def train(model, train_loader, val_loader, device, config):
                 all_preds = model(combined_batch)
                 
                 # Split predictions by property and average them
-                e_all = [[] for _ in model.output_properties]
+                e_all = [[] for _ in model.target_properties]
                 
                 # Split predictions by frame
                 batch_size = batch.num_graphs
                 num_frames = len(batch.fa_pos)
                 
-                for prop_idx, prop in enumerate(model.output_properties):
+                for prop_idx, prop in enumerate(model.target_properties):
                     # Get predictions for this property
                     prop_preds = all_preds[prop]
                     
@@ -265,7 +265,7 @@ def train(model, train_loader, val_loader, device, config):
                     logger.info("consistency_loss_disabled", 
                                reason="Configuration parameter is not True" if hasattr(config, 'consistency_loss') else "Config doesn't have consistency_loss attribute")
                 
-                for prop_idx, prop in enumerate(model.output_properties):
+                for prop_idx, prop in enumerate(model.target_properties):
                     if hasattr(batch, prop):
                         # Average predictions across frames 
                         avg_pred = sum(e_all[prop_idx]) / len(e_all[prop_idx])
@@ -340,7 +340,7 @@ def train(model, train_loader, val_loader, device, config):
                 
                 # Calculate loss
                 loss = 0
-                for prop in model.output_properties:
+                for prop in model.target_properties:
                     if hasattr(batch, prop):
                         # Get predictions and targets, ensure they have the same shape
                         model_preds = preds[prop]
@@ -404,13 +404,13 @@ def train(model, train_loader, val_loader, device, config):
                     all_preds = model(combined_batch)
                     
                     # Split predictions by property and average them
-                    e_all = [[] for _ in model.output_properties]
+                    e_all = [[] for _ in model.target_properties]
                     
                     # Split predictions by frame
                     batch_size = batch.num_graphs
                     num_frames = len(batch.fa_pos)
                     
-                    for prop_idx, prop in enumerate(model.output_properties):
+                    for prop_idx, prop in enumerate(model.target_properties):
                         # Get predictions for this property
                         prop_preds = all_preds[prop]
                         
@@ -436,7 +436,7 @@ def train(model, train_loader, val_loader, device, config):
                     if val_consistency_enabled:
                         from faenet.frame_averaging import compute_consistency_loss
                     
-                    for prop_idx, prop in enumerate(model.output_properties):
+                    for prop_idx, prop in enumerate(model.target_properties):
                         if hasattr(batch, prop):
                             # Average predictions across frames
                             avg_pred = sum(e_all[prop_idx]) / len(e_all[prop_idx])
@@ -480,7 +480,7 @@ def train(model, train_loader, val_loader, device, config):
                     
                     # Calculate loss
                     batch_loss = 0
-                    for prop in model.output_properties:
+                    for prop in model.target_properties:
                         if hasattr(batch, prop):
                             # Get predictions and targets, ensure they have the same shape
                             model_preds = preds[prop]
@@ -609,13 +609,13 @@ def run_inference(model, data_loader, device, config, output_file):
                 all_preds = model(combined_batch)
                 
                 # Split predictions by property and organize by frame
-                e_all = {prop: [] for prop in model.output_properties}
+                e_all = {prop: [] for prop in model.target_properties}
                 
                 # Split predictions by frame
                 batch_size = batch.num_graphs
                 num_frames = len(batch.fa_pos)
                 
-                for prop in model.output_properties:
+                for prop in model.target_properties:
                     # Get predictions for this property
                     prop_preds = all_preds[prop]
                     
@@ -632,7 +632,7 @@ def run_inference(model, data_loader, device, config, output_file):
                 
                 # Average predictions across frames
                 final_preds = {}
-                for prop in model.output_properties:
+                for prop in model.target_properties:
                     final_preds[prop] = (sum(e_all[prop]) / len(e_all[prop])).cpu().numpy()
             else:
                 # Standard forward pass
@@ -640,7 +640,7 @@ def run_inference(model, data_loader, device, config, output_file):
                 
                 # Convert predictions to numpy
                 final_preds = {}
-                for prop in model.output_properties:
+                for prop in model.target_properties:
                     final_preds[prop] = preds[prop].cpu().numpy()
             
             # Store predictions for each file
@@ -653,7 +653,7 @@ def run_inference(model, data_loader, device, config, output_file):
                     result[prop] = float(final_preds[prop][i][0])
                 
                 # Add ground truth if available
-                for prop in model.output_properties:
+                for prop in model.target_properties:
                     if hasattr(batch, prop):
                         # Handle different tensor shapes correctly
                         target_tensor = getattr(batch, prop)
@@ -755,7 +755,7 @@ def train_faenet(
         'num_filters', 
         'num_interactions',
         'dropout',
-        'output_properties'
+        'target_properties'
     ]
     
     # Debug model_kwargs to see what's coming in
@@ -785,6 +785,9 @@ def train_faenet(
     # Create a dictionary with ONLY the allowed model parameters
     model_args = {k: model_kwargs[k] for k in faenet_params if k in model_kwargs}
     model_args['cutoff'] = cutoff  # Always include cutoff
+    # IMPORTANT: Force target_properties to use our mapped target_props
+    # This ensures consistent property handling throughout the model
+    model_args['target_properties'] = target_props
     
     # Extract other parameters by category
     # MLflow parameters
@@ -898,20 +901,17 @@ def train_faenet(
         
         if not dataset_props:
             logger.warning("no_properties_in_dataset", mapped_props=target_props)
-            # If dataset couldn't find any of our properties, we need to log this
-            output_properties = target_props  # Use what we mapped anyway
+            # If no properties found in dataset, continue with what we mapped
+            # Warning has already been logged by the dataset
         else:
-            # Use what the dataset actually loaded
-            output_properties = dataset_props
+            # If dataset found properties, update our mapped properties to use only those
+            # that actually exist in the dataset
+            model_args['target_properties'] = dataset_props
+            logger.info("using_properties_from_dataset", properties=dataset_props)
     else:
-        # Fall back to our mapped properties if dataset has no properties
-        logger.warning("dataset_has_no_target_properties")
-        output_properties = target_props
-    
-    # Initialize model with clean model_args
-    # If output_properties isn't in model_args, add it from the local variable
-    if 'output_properties' not in model_args:
-        model_args['output_properties'] = output_properties
+        # Fall back to our mapped properties if dataset has no target_properties attribute
+        logger.warning("dataset_has_no_target_properties_attribute")
+        # model_args['target_properties'] is already set to target_props
     
     # Log the model parameters being used
     logger.info("initializing_model", 
@@ -919,7 +919,7 @@ def train_faenet(
                hidden_channels=model_args.get('hidden_channels', 128),
                num_filters=model_args.get('num_filters', 128),
                num_interactions=model_args.get('num_interactions', 4),
-               output_properties=model_args['output_properties'])
+               target_properties=model_args['target_properties'])
     
     model = FAENet(**model_args).to(device)
     
@@ -931,12 +931,12 @@ def train_faenet(
                train_size=train_size,
                val_size=val_size,
                test_size=test_size,
-               output_properties=model.output_properties)
+               target_properties=model.target_properties)
                
-    # Debug log for consistency loss test
-    logger.warn("model_output_properties",
-               properties=model.output_properties,
-               has_properties=hasattr(model, 'output_properties'))
+    # Debug log for model properties
+    logger.warn("model_properties",
+               target_properties=model.target_properties,
+               has_target_properties=hasattr(model, 'target_properties'))
     
     # MLflow setup
     if config.use_mlflow:
@@ -1001,13 +1001,13 @@ def train_faenet(
                         all_preds = model(combined_batch)
                         
                         # Split predictions by property and average them
-                        e_all = [[] for _ in model.output_properties]
+                        e_all = [[] for _ in model.target_properties]
                         
                         # Split predictions by frame
                         batch_size = batch.num_graphs
                         num_frames = len(batch.fa_pos)
                         
-                        for prop_idx, prop in enumerate(model.output_properties):
+                        for prop_idx, prop in enumerate(model.target_properties):
                             prop_preds = all_preds[prop]
                             
                             for i in range(num_frames):
@@ -1031,7 +1031,7 @@ def train_faenet(
                         if test_consistency_enabled:
                             from faenet.frame_averaging import compute_consistency_loss
                         
-                        for prop_idx, prop in enumerate(model.output_properties):
+                        for prop_idx, prop in enumerate(model.target_properties):
                             if hasattr(batch, prop):
                                 # Average predictions across frames
                                 avg_pred = sum(e_all[prop_idx]) / len(e_all[prop_idx])
@@ -1075,7 +1075,7 @@ def train_faenet(
                         
                         # Calculate loss
                         batch_loss = 0
-                        for prop in model.output_properties:
+                        for prop in model.target_properties:
                             if hasattr(batch, prop):
                                 model_preds = preds[prop]
                                 targets = getattr(batch, prop)

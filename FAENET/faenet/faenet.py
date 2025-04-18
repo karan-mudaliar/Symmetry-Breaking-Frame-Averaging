@@ -189,7 +189,7 @@ class FAENet(nn.Module):
         num_filters=128,
         num_interactions=4,
         dropout=0.0,
-        output_properties=None,
+        target_properties=None,
     ):
         super().__init__()
         
@@ -199,14 +199,14 @@ class FAENet(nn.Module):
         self.num_interactions = num_interactions
         self.dropout = dropout
         
-        # Make sure output_properties is always a list and has at least one property
-        if output_properties is None:
-            self.output_properties = ["energy"]
+        # Make sure target_properties is always a list and has at least one property
+        if target_properties is None:
+            self.target_properties = ["energy"]
             import structlog
             logger = structlog.get_logger()
-            logger.warning("faenet_default_property", message="No output properties provided, using default: energy")
+            logger.warning("faenet_default_property", message="No target properties provided, using default: energy")
         else:
-            self.output_properties = output_properties
+            self.target_properties = target_properties
             
         self.training = True
         
@@ -240,7 +240,7 @@ class FAENet(nn.Module):
         
         # Output blocks for each property
         self.output_blocks = nn.ModuleDict()
-        for prop in output_properties:
+        for prop in self.target_properties:
             self.output_blocks[prop] = OutputBlock(
                 hidden_channels,
                 self.act,
@@ -325,7 +325,7 @@ class FAENet(nn.Module):
             "hidden_state": h
         }
         
-        for prop in self.output_properties:
+        for prop in self.target_properties:
             preds[prop] = self.output_blocks[prop](h, batch)
             
         return preds
@@ -406,7 +406,7 @@ def process_batch_with_frame_averaging(model, batch, fa_method="all"):
     fa_pos, _, _ = frame_averaging_3D(batch.pos, None, fa_method)
     
     # Store predictions for each frame
-    prop_predictions = {prop: [] for prop in model.output_properties}
+    prop_predictions = {prop: [] for prop in model.target_properties}
     
     # Process each frame
     for i in range(len(fa_pos)):
@@ -417,7 +417,7 @@ def process_batch_with_frame_averaging(model, batch, fa_method="all"):
         preds = model(batch)
         
         # Collect predictions for each property
-        for prop in model.output_properties:
+        for prop in model.target_properties:
             if prop in preds:
                 prop_predictions[prop].append(preds[prop])
     
