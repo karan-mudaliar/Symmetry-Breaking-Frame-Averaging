@@ -73,12 +73,6 @@ class Config(BaseModel):
     consistency_norm: bool = Field(True, description="Whether to normalize consistency loss")
 
 
-# For backward compatibility with very old code
-class FAENetConfig(Config):
-    """Alias for Config to maintain backward compatibility with oldest code."""
-    pass
-
-
 def get_config() -> Config:
     """Parse command line arguments into a Config object."""
     config = tyro.cli(Config)
