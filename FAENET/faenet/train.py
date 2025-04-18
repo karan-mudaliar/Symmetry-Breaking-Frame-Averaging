@@ -891,8 +891,22 @@ def train_faenet(
         num_workers=num_workers
     )
     
-    # Use the previously mapped target properties for the model
-    output_properties = target_props
+    # Check the dataset to see what properties were actually loaded
+    if hasattr(dataset, 'target_properties') and dataset.target_properties:
+        dataset_props = list(dataset.target_properties.keys())
+        logger.info("dataset_loaded_properties", properties=dataset_props)
+        
+        if not dataset_props:
+            logger.warning("no_properties_in_dataset", mapped_props=target_props)
+            # If dataset couldn't find any of our properties, we need to log this
+            output_properties = target_props  # Use what we mapped anyway
+        else:
+            # Use what the dataset actually loaded
+            output_properties = dataset_props
+    else:
+        # Fall back to our mapped properties if dataset has no properties
+        logger.warning("dataset_has_no_target_properties")
+        output_properties = target_props
     
     # Initialize model with clean model_args
     # If output_properties isn't in model_args, add it from the local variable

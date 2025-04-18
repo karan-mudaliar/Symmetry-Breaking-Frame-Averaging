@@ -189,7 +189,7 @@ class FAENet(nn.Module):
         num_filters=128,
         num_interactions=4,
         dropout=0.0,
-        output_properties=["energy"],
+        output_properties=None,
     ):
         super().__init__()
         
@@ -198,7 +198,16 @@ class FAENet(nn.Module):
         self.num_filters = num_filters
         self.num_interactions = num_interactions
         self.dropout = dropout
-        self.output_properties = output_properties
+        
+        # Make sure output_properties is always a list and has at least one property
+        if output_properties is None:
+            self.output_properties = ["energy"]
+            import structlog
+            logger = structlog.get_logger()
+            logger.warning("faenet_default_property", message="No output properties provided, using default: energy")
+        else:
+            self.output_properties = output_properties
+            
         self.training = True
         
         # Use swish activation

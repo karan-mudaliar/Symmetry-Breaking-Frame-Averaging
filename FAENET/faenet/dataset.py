@@ -141,10 +141,17 @@ class SlabDataset(Dataset):
             # Target properties from columns
             self.target_properties = {}
             if target_props:
+                # Log available columns for debugging
+                logger.info("dataset_columns", columns=list(self.df.columns))
+                logger.info("checking_target_props", target_props=target_props)
+                
                 if isinstance(target_props, list):
                     for prop in target_props:
                         if prop in self.df.columns:
                             self.target_properties[prop] = True
+                            logger.info("found_property_in_csv", property=prop)
+                        else:
+                            logger.warning("property_not_in_csv", property=prop, available_columns=list(self.df.columns))
         
         # Process data or wait for lazy loading
         self.data_objects = None
