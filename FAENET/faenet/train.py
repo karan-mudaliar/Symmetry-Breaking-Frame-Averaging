@@ -1234,7 +1234,11 @@ def main():
         hidden_channels=config.hidden_channels,
         num_filters=config.num_filters,
         num_interactions=config.num_interactions,
-        dropout=config.dropout
+        dropout=config.dropout,
+        # Add consistency loss parameters
+        consistency_loss=config.consistency_loss,
+        consistency_weight=config.consistency_weight,
+        consistency_norm=config.consistency_norm
     )
     
     
