@@ -873,13 +873,21 @@ def train_faenet(
         num_workers=num_workers
     )
     
-    # Determine output properties from target_properties
-    if isinstance(target_properties, list):
+    # Determine output properties from dataset's target_properties rather than parameter
+    # This ensures we use what the dataset actually loaded from the CSV
+    if hasattr(dataset, 'target_properties') and dataset.target_properties:
+        # Get properties that actually exist in the dataset
+        output_properties = list(dataset.target_properties.keys())
+        logger.info("using_dataset_properties", properties=output_properties)
+    elif isinstance(target_properties, list):
         output_properties = target_properties
+        logger.info("using_parameter_properties", properties=output_properties)
     elif isinstance(target_properties, dict):
         output_properties = list(target_properties.keys())
+        logger.info("using_parameter_dict_keys", properties=output_properties)
     else:
         output_properties = ["energy"]
+        logger.info("using_default_property", property="energy")
     
     # Initialize model with clean model_args
     # If output_properties isn't in model_args, add it from the local variable
