@@ -27,7 +27,6 @@ class Config(BaseModel):
     num_filters: int = Field(128, description="Number of filters in model")
     num_interactions: int = Field(4, description="Number of interaction blocks")
     dropout: float = Field(0.0, description="Dropout rate")
-    output_properties: List[str] = Field(["energy"], description="Properties to predict")
     
     # Training parameters
     batch_size: int = Field(32, description="Batch size")

@@ -178,7 +178,7 @@ class FAENet(nn.Module):
         num_filters (int): Size of edge features
         num_interactions (int): Number of interaction blocks
         dropout (float): Dropout rate
-        output_properties (list): List of properties to predict
+        target_properties (list): List of properties to predict
     """
 
     def __init__(

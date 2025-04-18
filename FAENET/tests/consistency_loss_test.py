@@ -173,7 +173,7 @@ class ConsistencyLossTest(unittest.TestCase):
                 hidden_channels=32,
                 num_filters=32,
                 num_interactions=1,
-                output_properties=["WF_top", "WF_bottom"]
+                target_properties=["WF_top", "WF_bottom"]
             ).to(device)
             model.train()  # Set to training mode
             
@@ -196,7 +196,7 @@ class ConsistencyLossTest(unittest.TestCase):
             batch_size = batch.num_graphs
             num_frames = len(batch.fa_pos)
             
-            for prop in model.output_properties:
+            for prop in model.target_properties:
                 frame_outputs[prop] = []
                 
                 # Get predictions for this property
@@ -212,7 +212,7 @@ class ConsistencyLossTest(unittest.TestCase):
             consistency_loss = ConsistencyLoss(normalize=True)
             
             # Calculate loss for each property
-            for prop in model.output_properties:
+            for prop in model.target_properties:
                 # Get frame predictions for this property
                 frames = frame_outputs[prop]
                 
@@ -234,7 +234,7 @@ class ConsistencyLossTest(unittest.TestCase):
             # Reset gradients
             model.zero_grad()
             
-            for prop in model.output_properties:
+            for prop in model.target_properties:
                 loss = consistency_loss(frame_outputs[prop])
                 all_losses.append(loss)
             

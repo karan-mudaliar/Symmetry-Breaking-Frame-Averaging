@@ -549,7 +549,7 @@ def train(model, train_loader, val_loader, device, config):
         }, os.path.join(output_dir, "checkpoint.pt"))
 
 
-def run_inference(model, data_loader, device, config, output_file):
+def run_inference(model, data_loader, device, config, output_file, dataset_label=None):
     """Run inference on a dataset and save predictions
     
     Args:
@@ -558,6 +558,7 @@ def run_inference(model, data_loader, device, config, output_file):
         device: Device to run on
         config: Configuration object
         output_file: File to save predictions to
+        dataset_label: Optional label to identify which dataset (train, val, test)
     """
     model.eval()
     
@@ -647,6 +648,10 @@ def run_inference(model, data_loader, device, config, output_file):
             for i, identifier in enumerate(unique_identifiers):
                 result = {"jid": identifier}
                 
+                # Add dataset label if provided
+                if dataset_label:
+                    result["dataset"] = dataset_label
+                
                 # Add predictions
                 for prop in final_preds:
                     # For graph-level properties (scalar)
@@ -666,7 +671,6 @@ def run_inference(model, data_loader, device, config, output_file):
                         else:
                             # 2-dim or higher tensor
                             result[f"{prop}_true"] = float(target_tensor[i][0].cpu().numpy())
-                
                 
                 results.append(result)
     
@@ -1098,10 +1102,16 @@ def train_faenet(
             # Log test metrics
             mlflow.log_metric("test_loss", test_loss)
             
-            # Log the inference JSON as an artifact
-            inference_output_path = os.path.join(output_dir, config.inference_output)
-            if os.path.exists(inference_output_path):
-                mlflow.log_artifact(inference_output_path)
+            # Log the inference JSON files as artifacts
+            test_output_path = os.path.join(output_dir, "test_predictions.json")
+            val_output_path = os.path.join(output_dir, "val_predictions.json")
+            train_output_path = os.path.join(output_dir, "train_predictions.json")
+            combined_output_path = os.path.join(output_dir, "all_predictions.json")
+            
+            for path in [test_output_path, val_output_path, train_output_path, combined_output_path]:
+                if os.path.exists(path):
+                    mlflow.log_artifact(path)
+                    logger.info("logged_predictions_to_mlflow", file=path)
                 
             # Only end the run if specified (to support tests that need to check the run right after training)
             # We'll keep the run active during test execution, and the test itself can end it if needed
@@ -1123,9 +1133,66 @@ def train_faenet(
         model.load_state_dict(torch.load(best_model_path, map_location=device))
         logger.info("best_model_loaded", path=best_model_path)
     
+    # Run inference on all datasets
+    test_output = os.path.join(output_dir, "test_predictions.json")
+    val_output = os.path.join(output_dir, "val_predictions.json")
+    train_output = os.path.join(output_dir, "train_predictions.json")
+    
     # Run inference on test set
-    inference_output = os.path.join(output_dir, "predictions.json")
-    run_inference(model, test_loader, device, config, inference_output)
+    logger.info("running_inference_on_test_set")
+    run_inference(model, test_loader, device, config, test_output, dataset_label="test")
+    
+    # Run inference on validation set
+    logger.info("running_inference_on_validation_set")
+    run_inference(model, val_loader, device, config, val_output, dataset_label="val")
+    
+    # Run inference on training set
+    logger.info("running_inference_on_training_set")
+    run_inference(model, train_loader, device, config, train_output, dataset_label="train")
+    
+    # Also create a combined prediction file with all datasets
+    import json
+    
+    # Load all predictions
+    test_preds = []
+    val_preds = []
+    train_preds = []
+    
+    try:
+        with open(test_output, 'r') as f:
+            test_preds = json.load(f)
+    except Exception as e:
+        logger.error("failed_to_load_test_predictions", error=str(e))
+    
+    try:
+        with open(val_output, 'r') as f:
+            val_preds = json.load(f)
+    except Exception as e:
+        logger.error("failed_to_load_val_predictions", error=str(e))
+    
+    try:
+        with open(train_output, 'r') as f:
+            train_preds = json.load(f)
+    except Exception as e:
+        logger.error("failed_to_load_train_predictions", error=str(e))
+    
+    # Combine all predictions
+    all_preds = test_preds + val_preds + train_preds
+    
+    # Save combined predictions
+    combined_output = os.path.join(output_dir, "all_predictions.json")
+    with open(combined_output, 'w') as f:
+        json.dump(all_preds, f, indent=2)
+    
+    logger.info("saved_combined_predictions", count=len(all_preds), file=combined_output)
+    
+    # Add combined predictions to MLflow if enabled
+    if hasattr(config, 'use_mlflow') and config.use_mlflow:
+        try:
+            mlflow.log_artifact(combined_output)
+            logger.info("logged_combined_predictions_to_mlflow")
+        except Exception as e:
+            logger.error("failed_to_log_combined_predictions", error=str(e))
     
     return model, test_loader
 
