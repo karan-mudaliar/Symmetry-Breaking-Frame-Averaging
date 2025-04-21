@@ -72,7 +72,6 @@ FAENet uses a flat configuration model based on pydantic and tyro for type-safe 
 - `num_filters` (int, default=128): Number of filters in model
 - `num_interactions` (int, default=4): Number of interaction blocks
 - `dropout` (float, default=0.0): Dropout rate
-- `output_properties` (List[str], default=["energy"]): Properties to predict
 
 ### Training Parameters
 
@@ -92,7 +91,7 @@ FAENet uses a flat configuration model based on pydantic and tyro for type-safe 
 
 - `data_path` (Path, default="./data"): Directory with data files or CSV file
 - `structure_col` (Optional[str], default="slab"): Column name for structure data in CSV format
-- `target_properties` (List[str], default=["energy"]): Target properties to predict
+- `target_properties` (Literal["WF_top", "WF_bottom", "cleavage_energy", "WF"], default="WF"): Target property to predict
 - `pbc` (bool, default=True): Use periodic boundary conditions
 
 ### General Parameters

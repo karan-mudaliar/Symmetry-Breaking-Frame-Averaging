@@ -27,7 +27,6 @@ class Config(BaseModel):
     num_filters: int = Field(128, description="Number of filters in model")
     num_interactions: int = Field(4, description="Number of interaction blocks")
     dropout: float = Field(0.0, description="Dropout rate")
-    output_properties: List[str] = Field(["energy"], description="Properties to predict")
     
     # Training parameters
     batch_size: int = Field(32, description="Batch size")
@@ -52,7 +51,7 @@ class Config(BaseModel):
     data_path: Path = Field(Path("./data"), description="Directory with data files or CSV file")
     structure_col: Optional[str] = Field("slab", 
         description="Column name for structure data in CSV format")
-    target_properties: List[str] = Field(["energy"], description="Target properties to predict")
+    target_properties: Literal["WF_top", "WF_bottom", "cleavage_energy", "WF"] = Field("WF", description="Target property to predict (WF_top, WF_bottom, cleavage_energy, or WF for both WF_top and WF_bottom)")
     prop_files: Optional[List[str]] = Field(None, description="Files with property values")
     pbc: bool = Field(True, description="Use periodic boundary conditions")
     limit: Optional[int] = Field(None, description="Limit number of structures to process")
@@ -74,12 +73,6 @@ class Config(BaseModel):
     consistency_norm: bool = Field(True, description="Whether to normalize consistency loss")
 
 
-# For backward compatibility with very old code
-class FAENetConfig(Config):
-    """Alias for Config to maintain backward compatibility with oldest code."""
-    pass
-
-
 def get_config() -> Config:
     """Parse command line arguments into a Config object."""
     config = tyro.cli(Config)
@@ -93,7 +86,7 @@ if __name__ == "__main__":
     # Log an example command for running training
     logger.info("example_command", 
                message="Example command for training FAENet:",
-               command="python -m faenet.train --data_path=./test_data/surface_prop_data_set_top_bottom.csv --structure_col=slab --target_properties=[WF_top,WF_bottom,cleavage_energy] --frame_averaging=3D --fa_method=all --output_dir=./results")
+               command="python -m faenet.train --data_path=./test_data/surface_prop_data_set_top_bottom.csv --structure_col=slab --target_properties=WF --frame_averaging=3D --fa_method=all --output_dir=./results")
     
     # When imported in train.py, you would use:
     # from config import get_config
