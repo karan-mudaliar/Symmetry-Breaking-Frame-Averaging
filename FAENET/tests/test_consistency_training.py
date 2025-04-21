@@ -172,7 +172,7 @@ class TestConsistencyTraining(unittest.TestCase):
             failures = [method for method in called_methods if "_extraction_failed" in method]
             self.assertEqual(len(failures), 0, f"Value extraction failed for: {failures}")
             
-            print("✅ Consistency loss tensor initialization test passed!")
+            print("Consistency loss tensor initialization test passed!")
             
         except Exception as e:
             # Restore original function even if there's an error

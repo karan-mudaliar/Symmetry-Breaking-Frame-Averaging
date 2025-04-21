@@ -176,9 +176,9 @@ class TestTraining(unittest.TestCase):
                 
                 # The fact that we reach this point means our patched function
                 # successfully extracted the .item() from consistency_loss values
-                print("✅ MLflow item() extraction test passed!")
+                print("MLflow item() extraction test passed!")
                 
-                print("✅ Consistency loss and MLflow integration test passed!")
+                print("Consistency loss and MLflow integration test passed!")
                 
             except Exception as e:
                 # Restore original function even if there's an error
@@ -289,7 +289,7 @@ class TestTraining(unittest.TestCase):
                 self.assertTrue("val_loss" in logged_metrics, "val_loss should be logged")
                 self.assertTrue("test_loss" in logged_metrics, "test_loss should be logged")
                 
-                print("✅ MLflow integration test passed!")
+                print("MLflow integration test passed!")
                 
             except Exception as e:
                 # Restore original function even if there's an error
@@ -369,7 +369,7 @@ class TestTraining(unittest.TestCase):
                 dropout=config.dropout
             )
             
-            print("\n✅ Training completed successfully!")
+            print("\nTraining completed successfully!")
             
             # Verify the model was saved
             best_model_path = os.path.join(config.output_dir, "best_model.pt")

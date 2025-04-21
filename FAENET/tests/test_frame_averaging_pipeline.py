@@ -116,7 +116,7 @@ class TestFrameAveragingPipeline(unittest.TestCase):
                              for i in range(len(data_2d.fa_pos)))
             self.assertTrue(z_preserved, msg="2D frame averaging should preserve z-axis coordinates")
             
-            print("✅ Dataset frame averaging checks passed!")
+            print("Dataset frame averaging checks passed!")
     
     def test_batch_frame_averaging(self):
         """Test that frame averaging is correctly applied to batches."""
@@ -158,7 +158,7 @@ class TestFrameAveragingPipeline(unittest.TestCase):
         # Check original batch is unchanged
         self.assertFalse(hasattr(batch, 'fa_pos'), msg="Original batch should not have fa_pos")
         
-        print("✅ Batch frame averaging checks passed!")
+        print("Batch frame averaging checks passed!")
     
     def test_frame_processing(self):
         """Test that frame processing works correctly in the training loop."""
@@ -227,7 +227,7 @@ class TestFrameAveragingPipeline(unittest.TestCase):
                     self.assertEqual(frame.size(0), batch.num_graphs, 
                                     msg="Each frame should have predictions for the entire batch")
             
-            print(f"✅ Process frames with {frame_averaging} frame averaging passed!")
+            print(f"Process frames with {frame_averaging} frame averaging passed!")
             
     def test_consistency_loss(self):
         """Test that consistency loss is correctly calculated."""
@@ -294,7 +294,7 @@ class TestFrameAveragingPipeline(unittest.TestCase):
             msg="Total consistency loss should be positive when one property varies"
         )
         
-        print("✅ Consistency loss checks passed!")
+        print("Consistency loss checks passed!")
     
     def test_prediction_loss(self):
         """Test that prediction loss is correctly calculated."""
@@ -337,7 +337,7 @@ class TestFrameAveragingPipeline(unittest.TestCase):
         # Verify loss is still calculated correctly
         self.assertGreater(single_loss.item(), 0.0, msg="Single property prediction loss should be positive")
         
-        print("✅ Prediction loss checks passed!")
+        print("Prediction loss checks passed!")
         
     def test_end_to_end_training(self):
         """Test end-to-end training with frame averaging and consistency loss."""
@@ -446,7 +446,7 @@ class TestFrameAveragingPipeline(unittest.TestCase):
                 # Verify prediction loss
                 self.assertGreater(pred_loss.item(), 0.0, msg="Prediction loss should be positive")
             
-            print("✅ End-to-end training with frame averaging passed!")
+            print("End-to-end training with frame averaging passed!")
             
         except Exception as e:
             self.fail(f"End-to-end training failed with error: {str(e)}")
@@ -494,7 +494,7 @@ class TestFrameAveragingPipeline(unittest.TestCase):
                 msg=f"3D frame averaging with {method} should produce {expected} frames, got {counts_3d[method]}"
             )
         
-        print("✅ Frame count checks passed!")
+        print("Frame count checks passed!")
         print(f"2D frame counts: {counts_2d}")
         print(f"3D frame counts: {counts_3d}")
         
