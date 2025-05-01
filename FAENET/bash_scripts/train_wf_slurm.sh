@@ -62,7 +62,7 @@ python -m faenet.train \
   --learning_rate=0.001 \
   --weight_decay=1e-5 \
   --dropout=0.15 \
-  --consistency_loss=False \
+  --no-consistency-loss \
   --use_mlflow=True \
   --mlflow_experiment_name=FAENet_WF_Predictions \
   --run_name=WF_Production_Run \
