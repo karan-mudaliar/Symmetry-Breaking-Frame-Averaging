@@ -253,7 +253,7 @@ class ConsistencyLossTest(unittest.TestCase):
             
             self.assertTrue(has_grad, "Model parameters should have gradients")
             
-            print("Consistency loss test with real data passed!")
+            print("✅ Consistency loss test with real data passed!")
             
         except Exception as e:
             import traceback

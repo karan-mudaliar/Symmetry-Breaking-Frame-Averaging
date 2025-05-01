@@ -94,83 +94,48 @@ class TestConsistencyLoss(unittest.TestCase):
             self.assertIsNotNone(pred.grad)
             self.assertNotEqual(pred.grad.item(), 0.0)
     
-    def test_initialization_and_accumulation(self):
-        """Test initialization of consistency loss and accumulation with tensors."""
-        # Create test predictions
-        preds1 = [torch.tensor([[1.0], [2.0]]) for _ in range(3)]
-        preds2 = [torch.tensor([[3.0], [4.0]]) for _ in range(3)]
+    def test_loss_accumulation(self):
+        """Test loss accumulation with multiple properties using the list approach."""
+        # Create prediction tensors for multiple properties
+        prop1_preds = [torch.tensor([[1.0], [2.0]], requires_grad=True) for _ in range(3)]
+        prop2_preds = [torch.tensor([[3.0], [4.0]], requires_grad=True) for _ in range(3)]
         
-        # Test initialization as zero tensor
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        consistency_loss = torch.tensor(0.0, device=device)
+        # Initialize list to collect consistency losses
+        consistency_losses = []
         
-        # Calculate first loss
-        loss1 = compute_consistency_loss(preds1, normalize=False)
-        consistency_loss += loss1
+        # Calculate consistency loss for each property
+        consistency_losses.append(compute_consistency_loss(prop1_preds))
+        consistency_losses.append(compute_consistency_loss(prop2_preds))
         
-        # Verify result is still a tensor
-        self.assertTrue(isinstance(consistency_loss, torch.Tensor))
-        self.assertTrue(hasattr(consistency_loss, 'item'))
+        # Sum all consistency losses
+        total_consistency_loss = sum(consistency_losses)
         
-        # Calculate second loss
-        loss2 = compute_consistency_loss(preds2, normalize=False)
-        consistency_loss += loss2
+        # Check that the total loss requires gradients
+        self.assertTrue(total_consistency_loss.requires_grad)
         
-        # Verify final result is still a tensor
-        self.assertTrue(isinstance(consistency_loss, torch.Tensor))
+        # Create a dummy main loss
+        main_loss = torch.tensor(1.0, requires_grad=True)
         
-        # Test extraction with .item()
+        # Add weighted consistency loss to main loss
+        weight = 0.1
+        total_loss = main_loss + weight * total_consistency_loss
+        
+        # Check that the combined loss requires gradients
+        self.assertTrue(total_loss.requires_grad)
+        
+        # Backpropagate
+        total_loss.backward()
+        
+        # Check that gradients propagated to all tensors
+        for pred in prop1_preds + prop2_preds:
+            self.assertIsNotNone(pred.grad)
+        
+        # Try logging the loss value - ensure this doesn't break anything
         try:
-            value = consistency_loss.item()
-            self.assertTrue(isinstance(value, float))
+            loss_value = total_loss.detach().item()
+            self.assertIsInstance(loss_value, float)
         except Exception as e:
-            self.fail(f"Failed to extract item() value: {e}")
-    
-    def test_type_safety_with_mlflow(self):
-        """Test type safety with MLflow-like extraction."""
-        # Create test predictions
-        preds = [torch.tensor([[1.0], [2.0]]) for _ in range(3)]
-        
-        # Test tensor initialization
-        consistency_loss = torch.tensor(0.0)
-        
-        # Add tensor value
-        loss = compute_consistency_loss(preds, normalize=False)
-        consistency_loss += loss
-        
-        # Simulate MLflow logging with item() extraction
-        def mock_log_metric(key, value):
-            # Handle both tensor and scalar values
-            if hasattr(value, 'item'):
-                return value.item()
-            else:
-                return float(value)
-        
-        # Should not raise an error
-        try:
-            value = mock_log_metric("test_metric", consistency_loss)
-            self.assertTrue(isinstance(value, float))
-        except Exception as e:
-            self.fail(f"MLflow extraction failed: {e}")
-        
-        # Test integer initialization (problematic case)
-        int_consistency_loss = 0
-        
-        # Add tensor value to integer (this is what happens in the code)
-        int_consistency_loss += loss
-        
-        # Check if the result has item() method
-        has_item_method = hasattr(int_consistency_loss, 'item')
-        
-        # Our safe extraction should work regardless
-        try:
-            if has_item_method:
-                value = int_consistency_loss.item()
-            else:
-                value = float(int_consistency_loss)
-            self.assertTrue(isinstance(value, float))
-        except Exception as e:
-            self.fail(f"Safe extraction failed: {e}")
+            self.fail(f"Failed to extract loss value with detach().item(): {str(e)}")
 
 
 if __name__ == "__main__":
