@@ -365,140 +365,161 @@ def train(model, train_loader, val_loader, device, config):
         
         train_loss /= len(train_loader)
         
-        # Validation
-        model.eval()
-        val_loss = 0
+        # Get validation interval from config (default to evaluating every epoch if not specified)
+        eval_interval = getattr(config, 'eval_interval', 1)
         
-        with torch.no_grad():
-            for batch in tqdm(val_loader, desc="Validating"):
-                batch = batch.to(device)
-                
-                # Get frame averaging settings from config
-                frame_averaging = config.frame_averaging
-                fa_method = config.fa_method
-                if frame_averaging:
-                    batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
-                    
-                    # Process all frames at once for better equivariance
-                    from torch_geometric.data import Batch
-                    
-                    # Save original positions and cell
-                    original_pos = batch.pos.clone()
-                    original_cell = batch.cell.clone() if hasattr(batch, 'cell') and isinstance(batch.cell, torch.Tensor) else batch.cell
-                    
-                    # Create a list of batches, one for each frame
-                    all_batches = []
-                    for i in range(len(batch.fa_pos)):
-                        # Create a copy of the batch for this frame
-                        frame_batch = batch.clone()
-                        # Update positions and cell for this frame
-                        frame_batch.pos = batch.fa_pos[i]
-                        if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
-                            frame_batch.cell = batch.fa_cell[i]
-                        all_batches.append(frame_batch)
-                    
-                    # Create a single large batch with all frames
-                    combined_batch = Batch.from_data_list(all_batches)
-                    
-                    # Forward pass with all frames at once
-                    all_preds = model(combined_batch)
-                    
-                    # Split predictions by property and average them
-                    e_all = [[] for _ in model.target_properties]
-                    
-                    # Split predictions by frame
-                    batch_size = batch.num_graphs
-                    num_frames = len(batch.fa_pos)
-                    
-                    for prop_idx, prop in enumerate(model.target_properties):
-                        # Get predictions for this property
-                        prop_preds = all_preds[prop]
-                        
-                        # Split by frame
-                        for i in range(num_frames):
-                            start_idx = i * batch_size
-                            end_idx = (i + 1) * batch_size
-                            e_all[prop_idx].append(prop_preds[start_idx:end_idx])
-                    
-                    # Restore original positions and cell
-                    batch.pos = original_pos
-                    if hasattr(batch, 'cell') and batch.cell is not None:
-                        batch.cell = original_cell
-                    
-                    # Initialize list to collect validation loss components
-                    val_main_losses = []
-                    
-                    # Initialize list for consistency losses
-                    val_consistency_losses = []
-                    
-                    # Check if consistency loss is enabled
-                    val_consistency_enabled = hasattr(config, 'consistency_loss') and config.consistency_loss
-                    if val_consistency_enabled:
-                        from faenet.frame_averaging import compute_consistency_loss
-                    
-                    for prop_idx, prop in enumerate(model.target_properties):
-                        if hasattr(batch, prop):
-                            # Average predictions across frames
-                            avg_pred = sum(e_all[prop_idx]) / len(e_all[prop_idx])
-                            targets = getattr(batch, prop)
-                            
-                            # Ensure tensors have compatible shapes for loss computation
-                            if avg_pred.dim() != targets.dim():
-                                if avg_pred.dim() > targets.dim():
-                                    avg_pred = avg_pred.squeeze()
-                                else:
-                                    targets = targets.unsqueeze(-1)
-                            
-                            prop_val_loss = criterion(avg_pred, targets)
-                            val_main_losses.append(prop_val_loss)
-                            
-                            # Calculate consistency loss if enabled
-                            if val_consistency_enabled:
-                                prop_consistency = compute_consistency_loss(
-                                    e_all[prop_idx], 
-                                    normalize=config.consistency_norm
-                                )
-                                val_consistency_losses.append(prop_consistency)
-                    
-                    # Sum validation losses
-                    batch_loss = sum(val_main_losses) if val_main_losses else torch.tensor(0.0, device=device)
-                    
-                    # Add weighted consistency loss to total loss if enabled
-                    if val_consistency_losses and val_consistency_enabled:
-                        # Sum all consistency losses
-                        val_consistency_loss = sum(val_consistency_losses)
-                        
-                        # Add weighted consistency loss to total loss
-                        batch_loss = batch_loss + config.consistency_weight * val_consistency_loss
-                        
-                        # Log metrics if MLflow is enabled
-                        if hasattr(config, 'use_mlflow') and config.use_mlflow:
-                            mlflow.log_metric("val_consistency_loss", val_consistency_loss.detach().item(), step=epoch)
-                else:
-                    # Standard forward pass
-                    preds = model(batch)
-                    
-                    # Calculate loss
-                    batch_loss = 0
-                    for prop in model.target_properties:
-                        if hasattr(batch, prop):
-                            # Get predictions and targets, ensure they have the same shape
-                            model_preds = preds[prop]
-                            targets = getattr(batch, prop)
-                            
-                            # Make sure both are the same shape
-                            if model_preds.dim() != targets.dim():
-                                if model_preds.dim() > targets.dim():
-                                    model_preds = model_preds.squeeze()
-                                else:
-                                    targets = targets.unsqueeze(-1)
-                            
-                            prop_val_loss = criterion(model_preds, targets)
-                            batch_loss += prop_val_loss
-                
-                val_loss += batch_loss.item()
+        # Only perform validation at the specified interval
+        should_validate = (epoch + 1) % eval_interval == 0 or epoch == epochs - 1  # Always validate last epoch
+        
+        # Store the previous validation loss for use when skipping validation
+        if hasattr(train, 'prev_val_loss'):
+            prev_val_loss = train.prev_val_loss
+        else:
+            prev_val_loss = float('inf')  # Default for first epoch
+        
+        if should_validate:
+            # Perform validation
+            logger.info("running_validation", epoch=epoch+1, interval=eval_interval)
+            model.eval()
+            val_loss = 0
             
-            val_loss /= len(val_loader)
+            with torch.no_grad():
+                for batch in tqdm(val_loader, desc="Validating"):
+                    batch = batch.to(device)
+                    
+                    # Get frame averaging settings from config
+                    frame_averaging = config.frame_averaging
+                    fa_method = config.fa_method
+                    if frame_averaging:
+                        batch = apply_frame_averaging_to_batch(batch, fa_method, frame_averaging)
+                        
+                        # Process all frames at once for better equivariance
+                        from torch_geometric.data import Batch
+                        
+                        # Save original positions and cell
+                        original_pos = batch.pos.clone()
+                        original_cell = batch.cell.clone() if hasattr(batch, 'cell') and isinstance(batch.cell, torch.Tensor) else batch.cell
+                        
+                        # Create a list of batches, one for each frame
+                        all_batches = []
+                        for i in range(len(batch.fa_pos)):
+                            # Create a copy of the batch for this frame
+                            frame_batch = batch.clone()
+                            # Update positions and cell for this frame
+                            frame_batch.pos = batch.fa_pos[i]
+                            if hasattr(batch, 'cell') and batch.cell is not None and hasattr(batch, 'fa_cell'):
+                                frame_batch.cell = batch.fa_cell[i]
+                            all_batches.append(frame_batch)
+                        
+                        # Create a single large batch with all frames
+                        combined_batch = Batch.from_data_list(all_batches)
+                        
+                        # Forward pass with all frames at once
+                        all_preds = model(combined_batch)
+                        
+                        # Split predictions by property and average them
+                        e_all = [[] for _ in model.target_properties]
+                        
+                        # Split predictions by frame
+                        batch_size = batch.num_graphs
+                        num_frames = len(batch.fa_pos)
+                        
+                        for prop_idx, prop in enumerate(model.target_properties):
+                            # Get predictions for this property
+                            prop_preds = all_preds[prop]
+                            
+                            # Split by frame
+                            for i in range(num_frames):
+                                start_idx = i * batch_size
+                                end_idx = (i + 1) * batch_size
+                                e_all[prop_idx].append(prop_preds[start_idx:end_idx])
+                        
+                        # Restore original positions and cell
+                        batch.pos = original_pos
+                        if hasattr(batch, 'cell') and batch.cell is not None:
+                            batch.cell = original_cell
+                        
+                        # Initialize list to collect validation loss components
+                        val_main_losses = []
+                        
+                        # Initialize list for consistency losses
+                        val_consistency_losses = []
+                        
+                        # Check if consistency loss is enabled
+                        val_consistency_enabled = hasattr(config, 'consistency_loss') and config.consistency_loss
+                        if val_consistency_enabled:
+                            from faenet.frame_averaging import compute_consistency_loss
+                        
+                        for prop_idx, prop in enumerate(model.target_properties):
+                            if hasattr(batch, prop):
+                                # Average predictions across frames
+                                avg_pred = sum(e_all[prop_idx]) / len(e_all[prop_idx])
+                                targets = getattr(batch, prop)
+                                
+                                # Ensure tensors have compatible shapes for loss computation
+                                if avg_pred.dim() != targets.dim():
+                                    if avg_pred.dim() > targets.dim():
+                                        avg_pred = avg_pred.squeeze()
+                                    else:
+                                        targets = targets.unsqueeze(-1)
+                                
+                                prop_val_loss = criterion(avg_pred, targets)
+                                val_main_losses.append(prop_val_loss)
+                                
+                                # Calculate consistency loss if enabled
+                                if val_consistency_enabled:
+                                    prop_consistency = compute_consistency_loss(
+                                        e_all[prop_idx], 
+                                        normalize=config.consistency_norm
+                                    )
+                                    val_consistency_losses.append(prop_consistency)
+                        
+                        # Sum validation losses
+                        batch_loss = sum(val_main_losses) if val_main_losses else torch.tensor(0.0, device=device)
+                        
+                        # Add weighted consistency loss to total loss if enabled
+                        if val_consistency_losses and val_consistency_enabled:
+                            # Sum all consistency losses
+                            val_consistency_loss = sum(val_consistency_losses)
+                            
+                            # Add weighted consistency loss to total loss
+                            batch_loss = batch_loss + config.consistency_weight * val_consistency_loss
+                            
+                            # Log metrics if MLflow is enabled
+                            if hasattr(config, 'use_mlflow') and config.use_mlflow:
+                                mlflow.log_metric("val_consistency_loss", val_consistency_loss.detach().item(), step=epoch)
+                    else:
+                        # Standard forward pass
+                        preds = model(batch)
+                        
+                        # Calculate loss
+                        batch_loss = 0
+                        for prop in model.target_properties:
+                            if hasattr(batch, prop):
+                                # Get predictions and targets, ensure they have the same shape
+                                model_preds = preds[prop]
+                                targets = getattr(batch, prop)
+                                
+                                # Make sure both are the same shape
+                                if model_preds.dim() != targets.dim():
+                                    if model_preds.dim() > targets.dim():
+                                        model_preds = model_preds.squeeze()
+                                    else:
+                                        targets = targets.unsqueeze(-1)
+                                
+                                prop_val_loss = criterion(model_preds, targets)
+                                batch_loss += prop_val_loss
+                    
+                    val_loss += batch_loss.item()
+                
+                val_loss /= len(val_loader)
+                
+                # Store validation loss for future epochs
+                train.prev_val_loss = val_loss
+        else:
+            # Skip validation this epoch - no logging
+            # Use previous validation loss 
+            val_loss = prev_val_loss
         
         # Update learning rate
         scheduler.step(val_loss)

@@ -44,7 +44,7 @@ class Config(BaseModel):
     seed: int = Field(42, description="Random seed")
     num_workers: int = Field(0, description="Number of worker processes for data loading")
     checkpoint_interval: int = Field(10, description="Save checkpoint every N epochs")
-    eval_interval: int = Field(5, description="Evaluate model every N epochs")
+    eval_interval: int = Field(10, description="Evaluate model every N epochs")
     early_stopping_patience: int = Field(20, description="Patience for early stopping")
     
     # Data parameters
