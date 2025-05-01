@@ -166,6 +166,21 @@ def train(model, train_loader, val_loader, device, config):
     # Loss functions
     criterion = nn.MSELoss()
     
+    # Log the full configuration at start of training
+    if hasattr(config, 'model_dump'):
+        # For Pydantic v2
+        config_dict = config.model_dump()
+        logger.info("training_configuration", **config_dict)
+    elif hasattr(config, 'dict'):
+        # For Pydantic v1
+        config_dict = config.dict()
+        logger.info("training_configuration", **config_dict)
+    else:
+        # Fallback for non-Pydantic config
+        logger.info("training_configuration", 
+                   config_type=type(config).__name__,
+                   model_properties=model.target_properties)
+    
     # Create the consistency loss function if enabled
     consistency_enabled = hasattr(config, 'consistency_loss') and config.consistency_loss
     if consistency_enabled:
@@ -248,22 +263,12 @@ def train(model, train_loader, val_loader, device, config):
                 
                 # Initialize list for consistency losses
                 consistency_losses = []
-                logger.info("consistency_loss_check", 
-                           has_attribute=hasattr(config, 'consistency_loss'),
-                           config_value=config.consistency_loss if hasattr(config, 'consistency_loss') else None,
-                           config_type=type(config).__name__)
                 
-                # Check if consistency loss is enabled
+                # Check if consistency loss is enabled (without logging every time)
                 consistency_enabled = hasattr(config, 'consistency_loss') and config.consistency_loss
                 
                 if consistency_enabled:
                     from faenet.frame_averaging import compute_consistency_loss
-                    logger.info("consistency_loss_enabled", 
-                               weight=config.consistency_weight,
-                               normalize=config.consistency_norm)
-                else:
-                    logger.info("consistency_loss_disabled", 
-                               reason="Configuration parameter is not True" if hasattr(config, 'consistency_loss') else "Config doesn't have consistency_loss attribute")
                 
                 for prop_idx, prop in enumerate(model.target_properties):
                     if hasattr(batch, prop):
