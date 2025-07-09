@@ -80,3 +80,43 @@ class GaussianSmearing(torch.nn.Module):
         return torch.exp(self.coeff * torch.pow(dist, 2))
 
 
+class SmoothCutoff(torch.nn.Module):
+    """Smooth cutoff envelope function.
+    
+    Implements smooth cutoff as described in DimeNet paper to create
+    continuous edge features that go to zero at the cutoff distance.
+    """
+    def __init__(self, exponent=5):
+        """Initialize smooth cutoff function.
+        
+        Args:
+            exponent (int): Exponent for polynomial envelope.
+        """
+        super(SmoothCutoff, self).__init__()
+        self.p = exponent + 1
+        self.a = -(self.p + 1) * (self.p + 2) / 2
+        self.b = self.p * (self.p + 2)
+        self.c = -self.p * (self.p + 1) / 2
+        
+    def forward(self, x):
+        """Apply smooth cutoff envelope to normalized distances.
+        
+        Args:
+            x: Distances normalized by cutoff radius (distance/cutoff)
+            
+        Returns:
+            Smoothed distance weights
+        """
+        # Ensure x is within valid range to avoid singularities
+        x = torch.clamp(x, min=1e-8)
+        
+        # Compute polynomial terms
+        p, a, b, c = self.p, self.a, self.b, self.c
+        x_pow_p0 = x.pow(p - 1)
+        x_pow_p1 = x_pow_p0 * x
+        x_pow_p2 = x_pow_p1 * x
+        
+        # Apply envelope function: 1/x + ax^p-1 + bx^p + cx^p+1
+        return 1. / x + a * x_pow_p0 + b * x_pow_p1 + c * x_pow_p2
+
+

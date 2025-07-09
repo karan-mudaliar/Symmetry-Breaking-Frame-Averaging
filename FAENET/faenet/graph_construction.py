@@ -1,12 +1,55 @@
 """
 Graph construction module for crystal structures.
 Integrates with frame averaging for multi-frame processing.
+Enhanced with CGCNN features and improved periodic boundary condition handling.
 """
 import numpy as np
 import torch
+import torch.nn as nn
 from torch_geometric.data import Data
 import torch_scatter
 from pymatgen.core import Structure
+import structlog
+
+# Import JARVIS toolkit for CGCNN features
+from jarvis.core.specie import get_node_attributes
+
+# Import utility functions
+from faenet.utils import SmoothCutoff
+
+# Configure structlog
+logger = structlog.get_logger()
+
+
+class Envelope(nn.Module):
+    """Smooth cutoff envelope function.
+    
+    Implements smooth cutoff as described in DimeNet paper to create
+    continuous edge features that smoothly go to zero at the cutoff.
+    """
+    def __init__(self, exponent=5):
+        super(Envelope, self).__init__()
+        self.p = exponent + 1
+        self.a = -(self.p + 1) * (self.p + 2) / 2
+        self.b = self.p * (self.p + 2)
+        self.c = -self.p * (self.p + 1) / 2
+        
+    def forward(self, x):
+        """Apply smooth cutoff envelope to normalized distances.
+        
+        Args:
+            x: Distances normalized by cutoff radius (distance/cutoff)
+            
+        Returns:
+            Smoothed distance weights
+        """
+        p, a, b, c = self.p, self.a, self.b, self.c
+        x_pow_p0 = x.pow(p - 1)
+        x_pow_p1 = x_pow_p0 * x
+        x_pow_p2 = x_pow_p1 * x
+        
+        # Apply envelope function: 1/x + ax^p-1 + bx^p + cx^p+1
+        return 1. / x + a * x_pow_p0 + b * x_pow_p1 + c * x_pow_p2
 
 def get_distances(pos, edge_index):
     """Calculate distances and displacement vectors for edges.
@@ -55,6 +98,34 @@ def get_distances_pbc(pos, edge_index, cell, cell_offsets):
         "distances": distances,
         "distance_vec": rel_pos
     }
+
+
+def canonize_edge(src_id, dst_id, src_image, dst_image):
+    """Compute canonical edge representation.
+    
+    Sort vertex ids and shift periodic images so the first vertex is in (0,0,0) image.
+    
+    Args:
+        src_id: Source atom index
+        dst_id: Destination atom index
+        src_image: Source periodic image
+        dst_image: Destination periodic image
+    
+    Returns:
+        tuple: Canonized (src_id, dst_id, src_image, dst_image)
+    """
+    # Store directed edges src_id <= dst_id
+    if dst_id < src_id:
+        src_id, dst_id = dst_id, src_id
+        src_image, dst_image = dst_image, src_image
+
+    # Shift periodic images so that src is in (0,0,0) image
+    if not np.array_equal(src_image, (0, 0, 0)):
+        shift = src_image
+        src_image = tuple(np.subtract(src_image, shift))
+        dst_image = tuple(np.subtract(dst_image, shift))
+
+    return src_id, dst_id, src_image, dst_image
 
 
 def radius_graph_pbc(pos, cell, cutoff, max_neighbors=32, batch=None):
@@ -143,14 +214,15 @@ def radius_graph_pbc(pos, cell, cutoff, max_neighbors=32, batch=None):
     return edge_index, cell_offsets, neighbors
 
 
-def structure_to_graph(structure, cutoff=6.0, max_neighbors=40, pbc=True):
-    """Convert a pymatgen Structure to a PyG graph.
+def structure_to_graph(structure, cutoff=6.0, max_neighbors=40, pbc=True, use_z_embedding=False):
+    """Convert a pymatgen Structure to a PyG graph with CGCNN features.
     
     Args:
         structure: Pymatgen Structure
         cutoff: Cutoff distance for neighbors
         max_neighbors: Maximum number of neighbors per atom
         pbc: Whether to use periodic boundary conditions
+        use_z_embedding: Whether to extract z-coordinates for explicit symmetry breaking
         
     Returns:
         Data: PyG Data object
@@ -159,8 +231,28 @@ def structure_to_graph(structure, cutoff=6.0, max_neighbors=40, pbc=True):
     pos = torch.tensor(structure.cart_coords, dtype=torch.float)
     atomic_numbers = torch.tensor([site.specie.Z for site in structure], dtype=torch.long)
     
-    # Get atom features (just use atomic numbers for now)
-    x = torch.nn.functional.one_hot(atomic_numbers, num_classes=100).float()
+    # Get CGCNN features from JARVIS
+    node_features = []
+    for site in structure:
+        element = site.specie.symbol
+        try:
+            feat = get_node_attributes(element, atom_features="cgcnn")
+            node_features.append(feat)
+        except Exception as e:
+            logger.error("cgcnn_feature_error", element=element, error=str(e))
+            # Fallback to simple one-hot if JARVIS fails
+            feat = np.zeros(92)  # CGCNN dimension
+            feat[0] = 1.0  # Default feature
+            node_features.append(feat)
+    
+    # Convert to tensor
+    x = torch.tensor(np.array(node_features), dtype=torch.float)
+    
+    # Extract z-coordinates if requested (for slabs)
+    z_coords = None
+    if use_z_embedding:
+        # Get z component from cartesian coordinates
+        z_coords = torch.tensor(structure.cart_coords[:, 2], dtype=torch.float).unsqueeze(1)
     
     # Create PBC information if needed
     if pbc and structure.lattice:
@@ -184,24 +276,44 @@ def structure_to_graph(structure, cutoff=6.0, max_neighbors=40, pbc=True):
         cell_offsets = None
         neighbors = torch.tensor([max_neighbors] * pos.size(0), dtype=torch.long)
     
+    # Apply smooth cutoff to edge features
+    distances = edge_info["distances"]
+    distance_vec = edge_info["distance_vec"]
+    
+    # Create smooth cutoff weights
+    cutoff_fn = SmoothCutoff()
+    edge_weights = cutoff_fn(distances / cutoff)
+    
+    # Apply weights to distance vectors for smoother feature representation
+    # This preserves direction but scales magnitude by smooth cutoff function
+    weighted_distance_vec = distance_vec * edge_weights.unsqueeze(-1)
+    
+    # Create data dictionary
+    data_dict = {
+        "x": x,
+        "edge_index": edge_info["edge_index"],
+        "edge_attr": weighted_distance_vec,  # Use weighted vectors for better features
+        "pos": pos,
+        "atomic_numbers": atomic_numbers,
+        "cell": cell,
+        "cell_offsets": cell_offsets if cell_offsets is not None else None,
+        "neighbors": neighbors,
+        "natoms": torch.tensor([len(structure)]),
+        "distances": distances,
+        "edge_weights": edge_weights  # Store edge weights for possible later use
+    }
+    
+    # Add z-coordinates if requested
+    if z_coords is not None:
+        data_dict["z_coords"] = z_coords
+    
     # Create Data object
-    data = Data(
-        x=x,
-        edge_index=edge_info["edge_index"],
-        edge_attr=edge_info["distance_vec"],
-        pos=pos,
-        atomic_numbers=atomic_numbers,
-        cell=cell,
-        cell_offsets=cell_offsets if cell_offsets is not None else None,
-        neighbors=neighbors,
-        natoms=torch.tensor([len(structure)]),
-        distances=edge_info["distances"]
-    )
+    data = Data(**data_dict)
     
     return data
 
 
-def structure_dict_to_graph(structure_dict, cutoff=6.0, max_neighbors=40, pbc=True):
+def structure_dict_to_graph(structure_dict, cutoff=6.0, max_neighbors=40, pbc=True, use_z_embedding=False):
     """Convert a structure dictionary to a PyG graph.
     
     Args:
@@ -209,6 +321,7 @@ def structure_dict_to_graph(structure_dict, cutoff=6.0, max_neighbors=40, pbc=Tr
         cutoff: Cutoff distance for neighbors
         max_neighbors: Maximum number of neighbors per atom
         pbc: Whether to use periodic boundary conditions
+        use_z_embedding: Whether to extract z-coordinates for explicit symmetry breaking
         
     Returns:
         Data: PyG Data object
@@ -222,10 +335,18 @@ def structure_dict_to_graph(structure_dict, cutoff=6.0, max_neighbors=40, pbc=Tr
             structure_dict = json.loads(structure_dict)
         except json.JSONDecodeError:
             # If that fails, try as Python dict literal
-            structure_dict = ast.literal_eval(structure_dict)
+            try:
+                structure_dict = ast.literal_eval(structure_dict)
+            except (SyntaxError, ValueError) as e:
+                logger.error("Failed to parse structure dict", error=str(e))
+                raise ValueError(f"Could not parse structure dictionary: {e}")
     
     # Convert to Structure
-    structure = Structure.from_dict(structure_dict)
+    try:
+        structure = Structure.from_dict(structure_dict)
+    except Exception as e:
+        logger.error("Failed to convert dict to Structure", error=str(e))
+        raise ValueError(f"Invalid structure dictionary: {e}")
     
     # Convert to graph
-    return structure_to_graph(structure, cutoff, max_neighbors, pbc)
+    return structure_to_graph(structure, cutoff, max_neighbors, pbc, use_z_embedding)

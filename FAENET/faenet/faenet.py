@@ -22,12 +22,13 @@ class EmbeddingBlock(nn.Module):
         num_filters,
         hidden_channels,
         act,
+        cgcnn_dim=92,  # CGCNN feature dimension
     ):
         super().__init__()
         self.act = act
         
-        # Main embedding
-        self.emb = Embedding(100, hidden_channels)  # Support up to 100 atom types
+        # Linear projection for CGCNN features
+        self.node_emb = Linear(cgcnn_dim, hidden_channels)
         
         # MLP
         self.lin = Linear(hidden_channels, hidden_channels)
@@ -41,7 +42,11 @@ class EmbeddingBlock(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.emb.reset_parameters()
+        # Initialize Linear layer for CGCNN features
+        nn.init.xavier_uniform_(self.node_emb.weight)
+        self.node_emb.bias.data.fill_(0)
+        
+        # Initialize other layers
         nn.init.xavier_uniform_(self.lin.weight)
         self.lin.bias.data.fill_(0)
         nn.init.xavier_uniform_(self.lin_2.weight)
@@ -53,7 +58,7 @@ class EmbeddingBlock(nn.Module):
         nn.init.xavier_uniform_(self.lin_e3.weight)
         self.lin_e3.bias.data.fill_(0)
 
-    def forward(self, z, rel_pos, edge_attr):
+    def forward(self, x, rel_pos, edge_attr):
         # Edge embedding
         rel_pos = self.lin_e1(rel_pos)  # r_ij
         edge_attr = self.lin_e2(edge_attr)  # d_ij
@@ -61,8 +66,8 @@ class EmbeddingBlock(nn.Module):
         e = self.act(e)
         e = self.act(self.lin_e3(e))
         
-        # Node embedding
-        h = self.emb(z)
+        # Node embedding - now using CGCNN features directly
+        h = self.node_emb(x)
         h = self.act(self.lin(h))
         h = self.act(self.lin_2(h))
         
@@ -168,6 +173,60 @@ class OutputBlock(nn.Module):
         return out
 
 
+class OutputBlockWithZ(nn.Module):
+    """Output block that incorporates z-coordinate embeddings"""
+    
+    def __init__(self, hidden_channels, act, dropout=0.0, z_dim=32):
+        super().__init__()
+        self.act = act
+        self.dropout = dropout
+        
+        # Prediction MLP with z-coordinate integration
+        self.lin1 = Linear(hidden_channels, hidden_channels // 2)
+        
+        # Z-coordinate processing
+        self.z_emb = nn.Sequential(
+            Linear(1, 16),
+            nn.SiLU(),
+            Linear(16, z_dim),
+            nn.SiLU(),
+        )
+        
+        # Combine node features and z-features
+        self.lin2 = Linear(hidden_channels // 2 + z_dim, 1)
+        
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.lin1.weight)
+        self.lin1.bias.data.fill_(0)
+        # Initialize z-embedding layers
+        for m in self.z_emb.modules():
+            if isinstance(m, Linear):
+                nn.init.xavier_uniform_(m.weight)
+                m.bias.data.fill_(0)
+        nn.init.xavier_uniform_(self.lin2.weight)
+        self.lin2.bias.data.fill_(0)
+
+    def forward(self, h, z_coords, batch):
+        # Node embeddings
+        if self.dropout > 0 and self.training:
+            h = F.dropout(h, p=self.dropout, training=self.training)
+        h = self.lin1(h)
+        h = self.act(h)
+        h_pooled = scatter(h, batch, dim=0, reduce="add")
+        
+        # Z-coordinate processing
+        z_emb = self.z_emb(z_coords)
+        z_pooled = scatter(z_emb, batch, dim=0, reduce="add")
+        
+        # Combine and predict
+        combined = torch.cat([h_pooled, z_pooled], dim=1)
+        if self.dropout > 0 and self.training:
+            combined = F.dropout(combined, p=self.dropout, training=self.training)
+        out = self.lin2(combined)
+        
+        return out
+
+
 class FAENet(nn.Module):
     """Frame Averaging Equivariant Network (FAENet)
     
@@ -178,7 +237,9 @@ class FAENet(nn.Module):
         num_filters (int): Size of edge features
         num_interactions (int): Number of interaction blocks
         dropout (float): Dropout rate
-        output_properties (list): List of properties to predict
+        target_properties (list): List of properties to predict
+        use_z_embedding (bool): Whether to use z-coordinate embeddings
+        cgcnn_dim (int): Dimension of CGCNN features
     """
 
     def __init__(
@@ -189,7 +250,9 @@ class FAENet(nn.Module):
         num_filters=128,
         num_interactions=4,
         dropout=0.0,
-        output_properties=["energy"],
+        target_properties=None,
+        use_z_embedding=False,
+        cgcnn_dim=92,
     ):
         super().__init__()
         
@@ -198,7 +261,17 @@ class FAENet(nn.Module):
         self.num_filters = num_filters
         self.num_interactions = num_interactions
         self.dropout = dropout
-        self.output_properties = output_properties
+        self.use_z_embedding = use_z_embedding
+        
+        # Make sure target_properties is always a list and has at least one property
+        if target_properties is None:
+            self.target_properties = ["energy"]
+            import structlog
+            logger = structlog.get_logger()
+            logger.warning("faenet_default_property", message="No target properties provided, using default: energy")
+        else:
+            self.target_properties = target_properties
+            
         self.training = True
         
         # Use swish activation
@@ -207,12 +280,13 @@ class FAENet(nn.Module):
         # Distance expansion
         self.distance_expansion = GaussianSmearing(0.0, self.cutoff, num_gaussians)
         
-        # Embedding block
+        # Embedding block with CGCNN features
         self.embed_block = EmbeddingBlock(
             num_gaussians,
             num_filters,
             hidden_channels,
             self.act,
+            cgcnn_dim=cgcnn_dim,
         )
         
         # Interaction blocks
@@ -231,12 +305,20 @@ class FAENet(nn.Module):
         
         # Output blocks for each property
         self.output_blocks = nn.ModuleDict()
-        for prop in output_properties:
-            self.output_blocks[prop] = OutputBlock(
-                hidden_channels,
-                self.act,
-                dropout
-            )
+        for prop in self.target_properties:
+            if self.use_z_embedding:
+                self.output_blocks[prop] = OutputBlockWithZ(
+                    hidden_channels,
+                    self.act,
+                    dropout,
+                    z_dim=32
+                )
+            else:
+                self.output_blocks[prop] = OutputBlock(
+                    hidden_channels,
+                    self.act,
+                    dropout
+                )
         
     def forward(self, data):
         """Forward pass for property prediction
@@ -244,17 +326,18 @@ class FAENet(nn.Module):
         Args:
             data: PyTorch Geometric Data object with:
                 - pos: atom positions
-                - atomic_numbers: atom types
+                - x: CGCNN node features
                 - batch: batch assignment for atoms
                 - cell: unit cell for periodic boundary conditions (optional)
                 - edge_index: connectivity in COO format (optional)
                 - cell_offsets: offsets for periodic boundary conditions (optional)
                 - neighbors: number of neighbors for each atom (optional)
+                - z_coords: z-coordinates for symmetry breaking (optional)
                 
         Returns:
             dict: Predictions for target properties and optionally forces
         """
-        z = data.atomic_numbers.long()
+        x = data.x  # Use CGCNN features directly
         pos = data.pos
         batch = data.batch
         
@@ -300,8 +383,8 @@ class FAENet(nn.Module):
         # Apply distance expansion
         edge_attr = self.distance_expansion(edge_weight)
             
-        # Embedding block
-        h, e = self.embed_block(z, rel_pos, edge_attr)
+        # Embedding block - using CGCNN features directly
+        h, e = self.embed_block(x, rel_pos, edge_attr)
         
         # Store intermediate results for skip connections
         h_list = [h]
@@ -316,8 +399,15 @@ class FAENet(nn.Module):
             "hidden_state": h
         }
         
-        for prop in self.output_properties:
-            preds[prop] = self.output_blocks[prop](h, batch)
+        # Handle z-coordinate embedding if enabled
+        if self.use_z_embedding and hasattr(data, 'z_coords'):
+            # Process properties with z-coordinates
+            for prop in self.target_properties:
+                preds[prop] = self.output_blocks[prop](h, data.z_coords, batch)
+        else:
+            # Process properties without z-coordinates
+            for prop in self.target_properties:
+                preds[prop] = self.output_blocks[prop](h, batch)
             
         return preds
         
@@ -388,16 +478,27 @@ def process_batch_with_frame_averaging(model, batch, fa_method="all"):
     Returns:
         dict: Model predictions
     """
-    from faenet.frame_averaging import frame_averaging_3D
+    from faenet.frame_averaging import frame_averaging_3D, frame_averaging_2D
     
-    # Store original positions
+    # Store original positions and determine frame averaging type
     original_pos = batch.pos
     
-    # Apply frame averaging
-    fa_pos, _, _ = frame_averaging_3D(batch.pos, None, fa_method)
+    # Determine frame averaging type based on method name
+    if fa_method.startswith("2D") or fa_method == "2D":
+        # 2D Frame averaging (preserves z-axis)
+        fa_pos, fa_cell, fa_rot = frame_averaging_2D(batch.pos, None, fa_method.replace("2D-", ""))
+    else:
+        # 3D Frame averaging
+        fa_pos, fa_cell, fa_rot = frame_averaging_3D(batch.pos, None, fa_method)
     
     # Store predictions for each frame
-    prop_predictions = {prop: [] for prop in model.output_properties}
+    prop_predictions = {prop: [] for prop in model.target_properties}
+    
+    # Special handling for z-coordinates
+    has_z_coords = hasattr(batch, 'z_coords') and model.use_z_embedding
+    original_z_coords = None
+    if has_z_coords:
+        original_z_coords = batch.z_coords.clone()
     
     # Process each frame
     for i in range(len(fa_pos)):
@@ -408,12 +509,14 @@ def process_batch_with_frame_averaging(model, batch, fa_method="all"):
         preds = model(batch)
         
         # Collect predictions for each property
-        for prop in model.output_properties:
+        for prop in model.target_properties:
             if prop in preds:
                 prop_predictions[prop].append(preds[prop])
     
     # Restore original positions
     batch.pos = original_pos
+    if has_z_coords:
+        batch.z_coords = original_z_coords
     
     # Average predictions for each property
     final_preds = {}
