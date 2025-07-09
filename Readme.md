@@ -40,6 +40,9 @@ conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvi
 pip install torch-scatter torch-sparse torch-cluster torch-spline-conv -f https://data.pyg.org/whl/torch-2.5.1+cu121.html
 pip install torch_geometric
 
+# Install JARVIS toolkit for CGCNN features
+pip install jarvis-tools>=2023.1.2
+
 # Install other dependencies
 pip install tyro pydantic pymatgen pandas tqdm structlog coolname
 pip install sympy==1.13.1 fsspec ase mlflow
@@ -135,10 +138,52 @@ python -m faenet.training_scripts.train_dft_data \
   --device=cuda
 ```
 
+## Enhanced Features: CGCNN Integration
+
+FAENet uses CGCNN (Crystal Graph Convolutional Neural Network) features from the JARVIS toolkit, providing rich atomic property information for improved prediction performance.
+
+### Feature Information
+
+CGCNN features replace the simple one-hot encoding with a 92-dimensional vector containing rich physicochemical information for each atom:
+
+- Atomic properties (electronegativity, radius, electron affinity, etc.)
+- Group and period information
+- Valence electron configuration
+- And many other chemical descriptors
+
+These features provide the model with improved chemical understanding, leading to:
+- Faster convergence during training
+- Better generalization to new materials
+- Improved prediction accuracy for complex properties
+
+### Using CGCNN Features
+
+The implementation is transparent to users - no additional configuration is needed. The features are automatically used when processing structures through the FAENet pipeline.
+
+**Example usage remains the same**:
+```python
+from faenet.train import train_faenet
+
+# Train model with CGCNN features (automatically used)
+model, metrics = train_faenet(
+    data_path="./data/structures.csv",
+    structure_col="structure",
+    target_properties=["formation_energy"],
+    frame_averaging="3D"
+)
+```
+
+### Compatibility Notes
+
+- **Models**: Previous models trained with one-hot encoding are not compatible with the new CGCNN features. You'll need to retrain models.
+- **Frame Averaging**: CGCNN features are fully compatible with all frame averaging methods.
+- **Performance**: You may notice increased memory usage but faster convergence during training.
+
 ## License
 
 This project contains code based on other projects, which are licensed as follows:
 - Parts adapted from CGCNN: See [LICENSE.cgcnn](FAENET/licenses/LICENSE.cgcnn)
 - Parts adapted from MMF: See [LICENSE.mmf](FAENET/licenses/LICENSE.mmf)
+- CGCNN features adapted from JARVIS toolkit
 
 For the overall project license, see [LICENSE.md](LICENSE.md).

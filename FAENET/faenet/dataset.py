@@ -152,24 +152,54 @@ class SlabDataset(Dataset):
                             logger.info("found_property_in_csv", property=prop)
                         else:
                             logger.warning("property_not_in_csv", property=prop, available_columns=list(self.df.columns))
+            
+            # Check if split column exists
+            self.has_split_column = 'split' in self.df.columns
+            if self.has_split_column:
+                # Only use split column if requested or if column exists
+                logger.info("found_split_column", message="Found 'split' column in CSV")
+                
+                # Validate split values
+                valid_splits = ['train', 'val', 'test']
+                invalid_splits = set(self.df['split'].unique()) - set(valid_splits)
+                if invalid_splits:
+                    logger.warning("invalid_split_values", values=list(invalid_splits), 
+                                 message="Split column contains invalid values. Valid values are: train, val, test")
+                
+                # Log split distribution
+                split_counts = self.df['split'].value_counts().to_dict()
+                logger.info("split_distribution", 
+                           train=split_counts.get('train', 0),
+                           val=split_counts.get('val', 0),
+                           test=split_counts.get('test', 0))
         
         # Process data or wait for lazy loading
         self.data_objects = None
     
-    def _process_structure_file(self, file_path):
-        """Process a structure file to create a graph."""
+    def _process_structure_file(self, file_path, use_z_embedding=False):
+        """Process a structure file to create a graph.
+        
+        Args:
+            file_path: Path to structure file
+            use_z_embedding: Whether to extract z-coordinates for explicit symmetry breaking
+        """
         # Read file, convert to pymatgen Structure, create graph
         try:
             structure = Structure.from_file(file_path)
-            return structure_to_graph(structure, self.cutoff, self.max_neighbors, self.pbc)
+            return structure_to_graph(structure, self.cutoff, self.max_neighbors, self.pbc, use_z_embedding)
         except Exception as e:
             logger.error("structure_processing_error", file_path=file_path, error=str(e))
             return None
     
-    def _process_structure_dict(self, structure_dict):
-        """Process a structure dictionary to create a graph."""
+    def _process_structure_dict(self, structure_dict, use_z_embedding=False):
+        """Process a structure dictionary to create a graph.
+        
+        Args:
+            structure_dict: Structure dictionary
+            use_z_embedding: Whether to extract z-coordinates for explicit symmetry breaking
+        """
         try:
-            return structure_dict_to_graph(structure_dict, self.cutoff, self.max_neighbors, self.pbc)
+            return structure_dict_to_graph(structure_dict, self.cutoff, self.max_neighbors, self.pbc, use_z_embedding)
         except Exception as e:
             logger.error("structure_dict_processing_error", error=str(e))
             return None
@@ -185,7 +215,12 @@ class SlabDataset(Dataset):
         # Load structure based on source type
         if self.source_type == "directory":
             file_path = os.path.join(self.data_source, self.file_list[idx])
-            data = self._process_structure_file(file_path)
+            # Check if we should use z-coordinates for slabs
+            use_z_embedding = False
+            if hasattr(self, 'frame_averaging') and self.frame_averaging == "2D":
+                use_z_embedding = True
+            
+            data = self._process_structure_file(file_path, use_z_embedding=use_z_embedding)
             
             # Add target properties
             for prop_name, values in self.target_properties.items():
@@ -194,7 +229,12 @@ class SlabDataset(Dataset):
         else:
             # CSV source
             row = self.df.iloc[idx]
-            data = self._process_structure_dict(row[self.structure_col])
+            # Check if we should use z-coordinates for slabs
+            use_z_embedding = False
+            if hasattr(self, 'frame_averaging') and self.frame_averaging == "2D":
+                use_z_embedding = True
+                
+            data = self._process_structure_dict(row[self.structure_col], use_z_embedding=use_z_embedding)
             
             # Add target properties
             for prop_name in self.target_properties:
@@ -245,15 +285,21 @@ def create_dataloader(
     train_ratio=0.8,
     val_ratio=0.1,
     test_ratio=0.1,
-    seed=42
+    seed=42,
+    use_z_embedding=False
 ):
     """Create train, validation, and test dataloaders."""
-    from torch.utils.data import random_split
+    from torch.utils.data import random_split, Subset
     from torch_geometric.loader import DataLoader
     
     # Set random seed for reproducibility
     torch.manual_seed(seed)
     np.random.seed(seed)
+    
+    # Automatically enable z-coordinate embeddings for 2D frame averaging if not specified
+    if frame_averaging == "2D" and use_z_embedding is None:
+        use_z_embedding = True
+        logger.info("Automatically enabling z-coordinate embeddings for 2D frame averaging")
     
     # Create dataset
     dataset = SlabDataset(
@@ -267,15 +313,39 @@ def create_dataloader(
         fa_method=fa_method
     )
     
-    # Split dataset
-    n_total = len(dataset)
-    n_train = int(n_total * train_ratio)
-    n_val = int(n_total * val_ratio)
-    n_test = n_total - n_train - n_val
-    
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset, [n_train, n_val, n_test]
-    )
+    # Check if dataset has a split column and use it if available
+    if hasattr(dataset, 'has_split_column') and dataset.has_split_column:
+        logger.info("using_predefined_split", message="Using split column from CSV file")
+        
+        # Get indices for each split
+        train_indices = dataset.df[dataset.df['split'] == 'train'].index.tolist()
+        val_indices = dataset.df[dataset.df['split'] == 'val'].index.tolist()
+        test_indices = dataset.df[dataset.df['split'] == 'test'].index.tolist()
+        
+        # Log split sizes
+        logger.info("predefined_split_sizes", 
+                   train_size=len(train_indices),
+                   val_size=len(val_indices), 
+                   test_size=len(test_indices))
+        
+        # Create subset datasets
+        train_dataset = Subset(dataset, train_indices)
+        val_dataset = Subset(dataset, val_indices)
+        test_dataset = Subset(dataset, test_indices)
+    else:
+        # Use random split with specified ratios
+        logger.info("using_random_split", message="No split column found, using random split")
+        
+        # Split dataset
+        n_total = len(dataset)
+        n_train = int(n_total * train_ratio)
+        n_val = int(n_total * val_ratio)
+        n_test = n_total - n_train - n_val
+        
+        train_dataset, val_dataset, test_dataset = random_split(
+            dataset, [n_train, n_val, n_test],
+            generator=torch.Generator().manual_seed(seed)
+        )
     
     # Create dataloaders
     train_loader = DataLoader(

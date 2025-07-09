@@ -71,6 +71,12 @@ class Config(BaseModel):
     consistency_loss: bool = Field(False, description="Whether to use variance-based consistency loss")
     consistency_weight: float = Field(0.1, description="Weight for consistency loss")
     consistency_norm: bool = Field(True, description="Whether to normalize consistency loss")
+    
+    # Feature enhancement parameters
+    use_z_embedding: bool = Field(False, description="Whether to use explicit z-coordinate embeddings for slabs")
+    
+    # Data split parameters
+    use_csv_split: bool = Field(False, description="Whether to use 'split' column from CSV for train/val/test split")
 
 
 def get_config() -> Config:

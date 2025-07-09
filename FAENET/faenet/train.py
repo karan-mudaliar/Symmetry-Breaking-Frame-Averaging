@@ -833,11 +833,15 @@ def train_faenet(
     consistency_weight = model_kwargs.get('consistency_weight', 0.1)
     consistency_norm = model_kwargs.get('consistency_norm', True)
     
+    # Split column usage parameter
+    use_csv_split = model_kwargs.get('use_csv_split', False)
+    
     # Log extraction
-    logger.warn("consistency_params_extracted",
-               enabled=consistency_loss_enabled,
-               weight=consistency_weight,
-               normalize=consistency_norm)
+    logger.warn("params_extracted",
+               consistency_enabled=consistency_loss_enabled,
+               consistency_weight=consistency_weight,
+               consistency_normalize=consistency_norm,
+               use_csv_split=use_csv_split)
     
     # Generate a memorable run name if not provided
     if run_name is None:
@@ -868,13 +872,15 @@ def train_faenet(
         # Explicitly include consistency loss parameters
         'consistency_loss': consistency_loss_enabled,
         'consistency_weight': consistency_weight,
-        'consistency_norm': consistency_norm
+        'consistency_norm': consistency_norm,
+        'use_csv_split': use_csv_split
     }
     
     # Log the config parameters we're creating
     logger.warn("creating_config", 
                frame_averaging=frame_averaging,
-               consistency_loss=consistency_loss_enabled)
+               consistency_loss=consistency_loss_enabled,
+               use_csv_split=use_csv_split)
     
     # Create config from parameters
     config = Config(**config_params)
@@ -892,15 +898,43 @@ def train_faenet(
         fa_method=fa_method
     )
     
-    # Split into train, validation, and test sets
-    test_size = int(len(dataset) * test_ratio)
-    val_size = int(len(dataset) * val_ratio)
-    train_size = len(dataset) - val_size - test_size
-    
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset, [train_size, val_size, test_size],
-        generator=torch.Generator().manual_seed(seed)
-    )
+    # Check if dataset has a split column and if we should use it
+    use_csv_split = hasattr(config, 'use_csv_split') and config.use_csv_split
+    if use_csv_split and hasattr(dataset, 'has_split_column') and dataset.has_split_column:
+        logger.info("using_predefined_split", message="Using split column from CSV file")
+        
+        # Get indices for each split
+        from torch.utils.data import Subset
+        train_indices = dataset.df[dataset.df['split'] == 'train'].index.tolist()
+        val_indices = dataset.df[dataset.df['split'] == 'val'].index.tolist()
+        test_indices = dataset.df[dataset.df['split'] == 'test'].index.tolist()
+        
+        # Log split sizes
+        train_size = len(train_indices)
+        val_size = len(val_indices)
+        test_size = len(test_indices)
+        logger.info("predefined_split_sizes", 
+                   train_size=train_size,
+                   val_size=val_size, 
+                   test_size=test_size)
+        
+        # Create subset datasets
+        train_dataset = Subset(dataset, train_indices)
+        val_dataset = Subset(dataset, val_indices)
+        test_dataset = Subset(dataset, test_indices)
+    else:
+        # Use random split with specified ratios
+        logger.info("using_random_split", message="No split column found, using random split")
+        
+        # Split into train, validation, and test sets
+        test_size = int(len(dataset) * test_ratio)
+        val_size = int(len(dataset) * val_ratio)
+        train_size = len(dataset) - val_size - test_size
+        
+        train_dataset, val_dataset, test_dataset = random_split(
+            dataset, [train_size, val_size, test_size],
+            generator=torch.Generator().manual_seed(seed)
+        )
     
     # Create data loaders
     train_loader = DataLoader(
@@ -1264,7 +1298,9 @@ def main():
         # Add consistency loss parameters
         consistency_loss=config.consistency_loss,
         consistency_weight=config.consistency_weight,
-        consistency_norm=config.consistency_norm
+        consistency_norm=config.consistency_norm,
+        # Add split column usage parameter
+        use_csv_split=config.use_csv_split
     )
     
     
